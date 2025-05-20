@@ -1,0 +1,39 @@
+# API 키 및 비밀 설정
+.env
+
+# 가상 환경
+venv/
+env/
+.venv/
+.env/
+ENV/
+
+# 파이썬 캐시 파일
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 데이터 디렉토리
+/data/raw/*
+/data/processed/*
+
+# 벡터 DB
+/vector_db/*
+
+# 로그 파일
+*.log
+logs/
+
+# 시스템 파일
+.DS_Store
+Thumbs.db
+
+# IDE 및 편집기 파일
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
