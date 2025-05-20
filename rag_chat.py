@@ -4,7 +4,7 @@ import json
 import sys
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from langchain.schema import Document
@@ -14,11 +14,11 @@ from openai import OpenAI
 load_dotenv()
 
 # API 키 환경 변수에서 로드
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
 
-if not OPENAI_API_KEY:
-    print("오류: OPENAI_API_KEY가 .env 파일에 설정되지 않았습니다.")
+if not GEMINI_API_KEY:
+    print("오류: GEMINI_API_KEY가 .env 파일에 설정되지 않았습니다.")
     sys.exit(1)
 
 if not PERPLEXITY_API_KEY:
@@ -28,14 +28,19 @@ if not PERPLEXITY_API_KEY:
 CHROMA_DIR = "vector_db/chroma"
 
 # 1. 벡터 DB 로드
-embedding = OpenAIEmbeddings()
+embedding_model = GoogleGenerativeAIEmbeddings(
+        google_api_key=GEMINI_API_KEY,
+        model="models/text-embedding-004"
+    )
 vectordb = Chroma(
     persist_directory=CHROMA_DIR,
-    embedding_function=embedding
+    embedding_function=embedding_model
 )
 
 # 2. LLM 설정
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+llm = ChatGoogleGenerativeAI(
+    google_api_key=GEMINI_API_KEY,
+    model="models/gemini-2.5-flash-preview-05-20", temperature=0)
 
 # 3. 내부 RAG 검색기 설정
 internal_retriever = vectordb.as_retriever(
@@ -55,8 +60,6 @@ def perplexity_web_search(query, max_results=3):
         return []
     
     try:
-        enriched_query = f"던전앤파이터 {query} 스펙업 가이드 최신"
-        
         client = OpenAI(
             api_key=api_key,
             base_url="https://api.perplexity.ai"
@@ -75,7 +78,7 @@ def perplexity_web_search(query, max_results=3):
                     "Format your response as clear, actionable points whenever possible."
                 )
             },
-            {"role": "user", "content": f"최신 던전앤파이터 {query} 스펙업 가이드"}
+            {"role": "user", "content": f"2025 최신 던전앤파이터 {query} 스펙업 가이드"}
         ]
         
         response = client.chat.completions.create(
@@ -157,15 +160,18 @@ hybrid_prompt = PromptTemplate(
 
 정보 가중치 지침:
 - 웹 검색 정보에 50%, 내부 데이터베이스 정보에 50%의 가중치를 두고 응답을 구성하세요.
-- 웹 검색 정보를 우선적으로 고려하되, 내부 데이터베이스의 정보도 보완적으로 활용하세요.
-- 두 정보 소스가 상충할 경우 웹 검색 정보를 우선시하세요.
+- 두 정보 소스가 상충할 경우 최신 정보를 우선하세요.
 - 웹 검색 결과가 부족하거나 없는 경우에도 최선을 다해 내부 데이터베이스 정보를 활용하세요.
 
 응답 형식 지침:
 - 2025년 이전의 데이터는 의미가 없으니 참조하지 마세요.
-- 답변은 간결하게 3-5문장으로 제한하고, 핵심 정보만 제공하세요.
-- 스펙업 순서나 우선순위를 제시할 때는 단계별로 명확하게 안내하세요.
 - 불필요한 서론이나 배경 설명 없이 핵심 정보만 전달하세요.
+- 스펙업 순서나 우선순위를 제시할 때는 단계별로 명확하게 안내하세요.
+- 1,2,3 이런식으로 순서를 통해 우선순위를 제시하세요.
+- 신뢰성이 높은 정보는 더 상세하게 제공하세요.
+- 신뢰성이 떨어지는 정보는 명칭을 생략하는 식으로 추상화하여 짧게 제공하세요.
+- 캐릭터 직업을 말하지 않는 경우엔 공통적인 내용만 설명하세요.
+- 상황에 따라 던파 API 사이트를 적절히 추천해주는 방식을 채용하세요.
 
 사용자 질문: {question}
 

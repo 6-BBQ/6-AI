@@ -1,7 +1,7 @@
 import os
 import sys
 from langchain_community.vectorstores import Chroma
-from langchain_openai import OpenAIEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain.docstore.document import Document
 from dotenv import load_dotenv
 import json
@@ -11,10 +11,10 @@ from pathlib import Path
 load_dotenv()
 
 # API 키를 환경 변수에서 로드
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-if not OPENAI_API_KEY:
-    print("오류: OPENAI_API_KEY가 .env 파일에 설정되지 않았습니다.")
+if not GEMINI_API_KEY:
+    print("오류: GEMINI_API_KEY가 .env 파일에 설정되지 않았습니다.")
     sys.exit(1)
 
 PROCESSED_JSON_PATH = "data/processed/processed_docs.json"
@@ -41,7 +41,10 @@ def build_chroma_db():
     print(f"✅ {len(documents)}개 문서 로드 완료. 임베딩 생성 중...")
 
     # 임베딩 모델 초기화
-    embedding_model = OpenAIEmbeddings()
+    embedding_model = GoogleGenerativeAIEmbeddings(
+        google_api_key=GEMINI_API_KEY,
+        model="models/text-embedding-004"
+    )
     db = None
 
     # 배치 단위로 처리

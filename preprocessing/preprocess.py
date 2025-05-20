@@ -9,7 +9,7 @@ RAW_DATA_DIR = Path("data/raw")
 PROCESSED_DIR = Path("data/processed")
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
-BLACKLIST = ["선계", "커스텀 장비", "미스트 기어", "아칸", "출혈"]
+BLACKLIST = ["선계", "커스텀", "미스트 기어", "아칸", "출혈"]
 PRIORITY_TERMS = ["스펙업", "파밍", "명성", "레기온", "레이드", "뉴비", "가이드"]
 
 CHUNK_SIZE = 500

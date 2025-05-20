@@ -3,14 +3,12 @@ import argparse, sys, json, textwrap, os
 from pathlib import Path
 from datetime import datetime
 
-# 1️⃣ 개별 크롤러 import
 from official_crawler import crawl_df
 from dc_crawler       import crawl_dcinside
 from arca_crawler     import crawl_arca
 from youtube_crawler  import crawl_youtube
 
 def load_yt_ids(path: str | Path) -> list[str]:
-    """텍스트 파일(한 줄 = video_id) → 리스트"""
     if not path:
         return []
     
@@ -39,9 +37,6 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=textwrap.dedent("""\
             ▶ 던파 스펙업 가이드용 통합 크롤링 스크립트
-            예시:
-              python -m crawler.crawler --pages 8 --depth 2 \\
-                    --yt-list data/youtube_ids.txt
         """)
     )
     parser.add_argument("--pages", type=int, default=2,  help="각 게시판 최대 페이지 수")
@@ -53,9 +48,19 @@ def main():
           f"   - pages = {args.pages}, depth = {args.depth}\n"
           f"   - yt-list = {args.yt_list}")
 
+    # 1️⃣ 공식 사이트 크롤링
+    print(f"\n🟨 [1/4] 공식 사이트 크롤링 (최대 {args.pages}페이지)")
+    crawl_df(max_pages=args.pages, max_depth=args.depth)
 
+    # 2️⃣ DC인사이드 크롤링
+    print(f"\n🟨 [2/4] DC인사이드 크롤링 (최대 {args.pages}페이지)")
+    crawl_dcinside(max_pages=args.pages, max_depth=args.depth)
 
-    # 5️⃣ YouTube 자막
+    # 3️⃣ 아카라이브 크롤링
+    print(f"\n🟨 [3/4] 아카라이브 크롤링 (최대 {args.pages}페이지)")
+    crawl_arca(max_pages=args.pages, max_depth=args.depth)
+
+    # 4️⃣ YouTube 자막
     # 현재 작업 디렉토리 출력
     print(f"현재 작업 디렉토리: {os.getcwd()}")
     print(f"유튜브 ID 파일 경로: {args.yt_list}")

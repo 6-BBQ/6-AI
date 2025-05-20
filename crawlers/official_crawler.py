@@ -8,9 +8,19 @@ from bs4 import BeautifulSoup
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 BASE_URL = "https://df.nexon.com"
 SAVE_PATH = "data/raw/official_row.json"
-FILTER_KEYWORDS = ["명성", "던전", "스펙업", "장비", "파밍", "뉴비", "유입", "융합석", "중천",
-                   "팁", "가이드", "공략", "세트", "에픽", "태초", "소울", "레기온", "레이드", "초보자", "현질", "준종결", "종결"]
+FILTER_KEYWORDS = ["명성", "던전", "스펙업", "장비", "파밍", "뉴비", "유입", "초보자", "융합석", "중천", "세트", "나벨", "베누스",
+                   "가이드", "공략", "에픽", "태초", "소울", "레기온", "레이드", "현질", "세리아", "준종결", "종결"]
+EXCLUDE_KEYWORDS = ["이벤트", "선계", "커스텀", "카지노", "바칼", "ㅅㅂ", "ㅂㅅ", "ㅄ", "ㅗ", "시발", "씨발", "병신", "좆"]
 # ──────────────────────────────────────────────
+
+# 날짜 확인 함수 추가
+def is_valid_date(date_text):
+    # "[날짜 없음]"인 경우 유효하지 않음
+    if date_text == "[날짜 없음]":
+        return False
+    
+    # 2025년 확인 (포맷: "2025-05-12")
+    return date_text.startswith("2025")
 
 # 📌 1. 게시글 리스트 추출 (한 페이지)
 def get_post_list(page_num, session):
@@ -20,17 +30,23 @@ def get_post_list(page_num, session):
     posts = soup.select("article.board_list > ul")
     return posts
 
-# 📌 2. 게시글 URL 추출
-def parse_post_url(post):
+# 📌 2. 게시글 URL 및 제목 추출
+def parse_post_info(post):
     title_li = post.select_one("li.title")
     if not title_li:
-        return None
+        return None, None
 
     link_tag = title_li.find_all("a")[-1]
     href = link_tag.get("href", "").strip()
     if href.startswith("/community/dnfboard/article/"):
-        return BASE_URL + href
-    return None
+        post_url = BASE_URL + href
+    else:
+        return None, None
+        
+    # 제목 키워드 추출
+    title_text = link_tag.get_text(strip=True)
+    
+    return post_url, title_text
 
 # 📌 3. 게시글 본문 크롤링 (본문 내 URL도 재귀 크롤링)
 def crawl_post_content(post_url, session, visited_urls, depth=0, max_depth=2):
@@ -51,12 +67,14 @@ def crawl_post_content(post_url, session, visited_urls, depth=0, max_depth=2):
         date_tag = soup.select_one("li.date")
         date_text = date_tag.get_text(strip=True) if date_tag else "[날짜 없음]"
 
+        # 2025년 게시글만 허용
+        if not is_valid_date(date_text):
+            return []
+
         content_div = soup.select_one("div.bd_viewcont")
         content_text = content_div.get_text("\n", strip=True) if content_div else "[본문 없음]"
 
-        # ✅ 제목 키워드 필터링 (본문 무시)
-        if not any(keyword in title_text for keyword in FILTER_KEYWORDS):
-            return []
+        # 제목은 이미 리스트 단계에서 필터링했으므로 여기서는 필터링하지 않음
 
         post_data = {
             "url": post_url,
@@ -72,6 +90,17 @@ def crawl_post_content(post_url, session, visited_urls, depth=0, max_depth=2):
             for a in content_div.find_all("a", href=True):
                 linked_href = a["href"]
                 if linked_href.startswith("/community/dnfboard/article/"):
+                    # 링크 텍스트(제목) 추출
+                    link_text = a.get_text(strip=True)
+                    
+                    # 링크 제목 필터링 - 제외 키워드가 포함된 링크는 건너뛰기
+                    if any(bad_word in link_text for bad_word in EXCLUDE_KEYWORDS):
+                        continue
+                    
+                    # 포함 키워드가 하나라도 있는지 확인 - 없으면 건너뛰기
+                    if not any(keyword in link_text for keyword in FILTER_KEYWORDS):
+                        continue
+                    
                     full_link = BASE_URL + linked_href
                     results.extend(crawl_post_content(full_link, session, visited_urls, depth + 1, max_depth))
 
@@ -96,8 +125,15 @@ def crawl_df(max_pages=2, max_depth=2):
         posts = get_post_list(page, session)
 
         for post in posts:
-            post_url = parse_post_url(post)
-            if not post_url:
+            post_url, title_text = parse_post_info(post)
+            if not post_url or not title_text:
+                continue
+                
+            # 게시글 리스트에서 제목 필터링
+            if not any(keyword in title_text for keyword in FILTER_KEYWORDS):
+                continue
+                
+            if any(bad_word in title_text for bad_word in EXCLUDE_KEYWORDS):
                 continue
 
             is_notice = 'notice' in post.get("class", [])
