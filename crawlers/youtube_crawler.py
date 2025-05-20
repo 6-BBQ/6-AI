@@ -42,7 +42,7 @@ def crawl_youtube(video_ids: list[str]):
         success_count += 1
         
         # 너무 빠른 연속 요청 방지
-        time.sleep(3.0)
+        time.sleep(5.0)
     
     # 결과가 없어도 빈 파일 생성
     SAVE_PATH.parent.mkdir(parents=True, exist_ok=True)
