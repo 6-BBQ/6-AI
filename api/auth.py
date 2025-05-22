@@ -1,5 +1,6 @@
 import os
 import jwt
+import base64
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from fastapi import HTTPException, status
@@ -12,7 +13,12 @@ class JWTAuth:
     
     def __init__(self):
         # JWT 시크릿 키 (스프링과 동일한 키 사용)
-        self.secret_key = os.getenv("JWT_SECRET_KEY", "your-secret-key-here")
+        secret_key_b64 = os.getenv("JWT_SECRET_KEY", "your-secret-key-here")
+        # Base64 디코딩
+        try:
+            self.secret_key = base64.b64decode(secret_key_b64).decode('utf-8')
+        except:
+            self.secret_key = secret_key_b64  # 디코딩 실패시 원본 사용
         self.algorithm = "HS256"
     
     def verify_token(self, token: str) -> Dict[str, Any]:

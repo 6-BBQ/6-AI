@@ -17,10 +17,12 @@ __pycache__/
 htmlcov/
 
 # 데이터 디렉토리 (원본 데이터는 제외, 처리된 파일만 포함)
+/data/*.json
+/data/*.jsonl
 /data/raw/*.json
 /data/raw/*.jsonl
-/data/processed_docs.jsonl
-/data/visited_urls.json
+/data/merged/*.json
+/data/merged/*.jsonl
 
 # 벡터 DB (용량이 크므로 제외)
 /vector_db/

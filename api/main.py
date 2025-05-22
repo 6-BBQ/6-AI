@@ -4,9 +4,31 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import HTTPException
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
 
 from .endpoints import router
 from .models import ErrorResponse
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """앱 시작 및 종료 이벤트를 처리하는 lifespan 함수"""
+    print("🚀 DF RAG API 서버 시작 중...")
+    print("📚 RAG 시스템 워밍업...")
+
+    try:
+        from rag import get_rag_service
+        get_rag_service()  # 싱글톤 인스턴스 생성
+        print("✅ RAG 시스템 준비 완료")
+    except Exception as e:
+        print(f"❌ RAG 시스템 초기화 실패: {e}")
+
+    # 서버 실행 유지
+    yield
+
+    # 종료 시 로직
+    print("🛑 DF RAG API 서버 종료 중...")
+
 
 # FastAPI 앱 생성
 app = FastAPI(
@@ -14,20 +36,21 @@ app = FastAPI(
     description="던전앤파이터 전용 RAG 시스템 API",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan,  # 👈 lifespan 적용
 )
 
 # CORS 설정 (스프링 백엔드와 통신을 위해)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 운영 환경에서는 구체적인 도메인 지정
+    allow_origins=["*"],  # 운영 환경에서는 도메인 제한 필요
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # 라우터 등록
-app.include_router(router, prefix="/api/v1", tags=["RAG"])
+app.include_router(router, prefix="/api/df", tags=["RAG"])
 
 # 루트 엔드포인트
 @app.get("/")
@@ -62,32 +85,12 @@ async def general_exception_handler(request: Request, exc: Exception):
         ).dict()
     )
 
-# 서버 시작 이벤트
-@app.on_event("startup")
-async def startup_event():
-    """서버 시작 시 실행되는 이벤트"""
-    print("🚀 DF RAG API 서버 시작 중...")
-    print("📚 RAG 시스템 워밍업...")
-    
-    # RAG 시스템 워밍업 (미리 로드)
-    try:
-        from rag import get_rag_service
-        get_rag_service()  # 싱글톤 인스턴스 생성
-        print("✅ RAG 시스템 준비 완료")
-    except Exception as e:
-        print(f"❌ RAG 시스템 초기화 실패: {e}")
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """서버 종료 시 실행되는 이벤트"""
-    print("🛑 DF RAG API 서버 종료 중...")
-
+# 로컬 테스트 실행
 if __name__ == "__main__":
-    # 개발 서버 실행
     uvicorn.run(
         "api.main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True,
         log_level="info"
     )

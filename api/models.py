@@ -1,43 +1,60 @@
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
-class CharacterInfo(BaseModel):
-    """캐릭터 정보 모델"""
-    character_id: str = Field(..., description="캐릭터 ID")
-    character_name: Optional[str] = Field(None, description="캐릭터 이름")
-    class_name: Optional[str] = Field(None, description="직업명")
-    fame: Optional[int] = Field(None, description="명성")
-
-class ChatRequest(BaseModel):
-    """채팅 요청 모델"""
-    query: str = Field(..., description="사용자 질문", min_length=1, max_length=500)
-    jwt_token: str = Field(..., description="JWT 인증 토큰")
-    character_summary: Optional[CharacterInfo] = Field(None, description="캐릭터 요약 정보")
-
 class SourceDocument(BaseModel):
-    """출처 문서 모델"""
     title: str = Field(..., description="문서 제목")
     url: Optional[str] = Field(None, description="문서 URL")
     source: Optional[str] = Field(None, description="소스 타입")
 
+# ────────────── 실행 시간 모델 ──────────────
+class SearchTimes(BaseModel):
+    internal_search: float = Field(..., description="내부 검색 시간")
+    web_search: float = Field(..., description="웹 검색 시간")
+    total_search: float = Field(..., description="검색 총 소요 시간")
+
+
+class ExecutionTimes(BaseModel):
+    total: float = Field(..., description="전체 소요 시간")
+    llm: float = Field(..., description="LLM 응답 생성 시간")
+    search: SearchTimes = Field(..., description="검색 세부 소요 시간")
+
+
+# ────────────── 요청·응답 모델 ──────────────
+class ChatRequest(BaseModel):
+    query: str = Field(..., description="사용자 질문")
+    jwt_token: str = Field(..., description="JWT 인증 토큰")
+    # character_data는 어떤 필드가 와도 수용
+    character_data: Optional[Dict[str, Any]] = Field(
+        None, description="스프링에서 내려주는 캐릭터 요약 정보(JSON)"
+    )
+
 class ChatResponse(BaseModel):
-    """채팅 응답 모델"""
     success: bool = Field(..., description="성공 여부")
     answer: str = Field(..., description="RAG 답변 내용")
     sources: List[SourceDocument] = Field(default_factory=list, description="참고 출처들")
+
     character_specific_advice: Optional[str] = Field(None, description="캐릭터 맞춤 조언")
-    execution_time: float = Field(..., description="실행 시간(초)")
+    execution_time: float = Field(..., description="총 실행 시간(초)")
     used_web_search: bool = Field(default=False, description="웹 검색 사용 여부")
 
+    # 디버깅 정보
+    internal_docs: List[Dict[str, Any]] = Field(default_factory=list)
+    web_docs: List[Dict[str, Any]] = Field(default_factory=list)
+    enhanced_query: Optional[str] = None
+
+    execution_times: Optional[Dict[str, Any]] = Field(None, description="상세 실행 시간")
+    internal_context: Optional[str] = None
+    web_context: Optional[str] = None
+
+
 class ErrorResponse(BaseModel):
-    """에러 응답 모델"""
-    success: bool = Field(default=False, description="성공 여부")
-    error: str = Field(..., description="에러 메시지")
-    error_code: Optional[str] = Field(None, description="에러 코드")
+    success: bool = Field(default=False)
+    error: str
+    error_code: Optional[str] = None
+
 
 class HealthResponse(BaseModel):
-    """헬스체크 응답 모델"""
-    status: str = Field(..., description="서비스 상태")
-    version: str = Field(..., description="API 버전")
-    timestamp: str = Field(..., description="현재 시간")
-    rag_system_ready: bool = Field(..., description="RAG 시스템 준비 상태")
+    status: str
+    version: str
+    timestamp: str
+    rag_system_ready: bool
