@@ -1,67 +1,207 @@
-import os
-import requests
-import json
-import sys
+from __future__ import annotations
+import os, logging, time, hashlib, pickle
+from concurrent.futures import ThreadPoolExecutor
+from typing import Dict, List
+from pathlib import Path
 from dotenv import load_dotenv
+
+
+
+# 🆕 LLM & 임베딩
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import OpenAIEmbeddings
 from langchain_chroma import Chroma
-from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
-from langchain.prompts import PromptTemplate
-from langchain.chains import LLMChain
-from langchain.schema import Document
+
+# 내부 검색 공통
+from langchain_community.retrievers import BM25Retriever
+from langchain.retrievers import EnsembleRetriever, ContextualCompressionRetriever
+from langchain_community.cross_encoders import HuggingFaceCrossEncoder
+from langchain.retrievers.document_compressors import CrossEncoderReranker
+
+# Perplexity 웹 검색
 from openai import OpenAI
 
-# .env 파일에서 환경 변수 로드
+from langchain.prompts import PromptTemplate
+from langchain.docstore.document import Document
+
 load_dotenv()
 
-# API 키 환경 변수에서 로드
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
+# 캐시 디렉토리 생성
+CACHE_DIR = Path("cache")
+CACHE_DIR.mkdir(exist_ok=True)
 
+# ───────────────────────────────────────────────
+# 1️⃣ 환경 변수
+GEMINI_API_KEY       = os.getenv("GEMINI_API_KEY")
+PERPLEXITY_API_KEY   = os.getenv("PERPLEXITY_API_KEY")
 if not GEMINI_API_KEY:
-    print("오류: GEMINI_API_KEY가 .env 파일에 설정되지 않았습니다.")
-    sys.exit(1)
+    raise RuntimeError("GEMINI_API_KEY 환경변수 필요!")
 
-if not PERPLEXITY_API_KEY:
-    print("경고: PERPLEXITY_API_KEY가 .env 파일에 설정되지 않았습니다. 웹 검색 기능이 작동하지 않을 수 있습니다.")
+# ───────────────────────────────────────────────
+# 2️⃣ 내부 RAG (기존과 동일)
+CHROMA_DIR   = "vector_db/chroma"
+EMBED_MODEL  = "text-embedding-3-large"
+embed_fn     = OpenAIEmbeddings(model=EMBED_MODEL)
 
-# 벡터 DB 경로
-CHROMA_DIR = "vector_db/chroma"
-
-# 1. 벡터 DB 로드
-embedding_model = GoogleGenerativeAIEmbeddings(
-        google_api_key=GEMINI_API_KEY,
-        model="models/text-embedding-004"
-    )
-vectordb = Chroma(
-    persist_directory=CHROMA_DIR,
-    embedding_function=embedding_model
-)
-
-# 2. LLM 설정
-llm = ChatGoogleGenerativeAI(
-    google_api_key=GEMINI_API_KEY,
-    model="models/gemini-2.5-flash-preview-05-20", temperature=0)
-
-# 3. 내부 RAG 검색기 설정
-internal_retriever = vectordb.as_retriever(
+vectordb = Chroma(persist_directory=CHROMA_DIR, embedding_function=embed_fn)
+vector_retriever = vectordb.as_retriever(
     search_type="mmr",
-    search_kwargs={
-        "k": 6,
-        "fetch_k": 12,
-        "lambda_mult": 0.7
-    }
+    search_kwargs={"k": 8, "fetch_k": 15, "lambda_mult": 0.8},
 )
 
-# 4. Perplexity API를 사용한 웹 검색 함수
-def perplexity_web_search(query, max_results=3):
-    api_key = PERPLEXITY_API_KEY
+# BM25 with enhanced metadata
+store_data = vectordb.get(include=["documents", "metadatas"])
+docs_for_bm25 = []
+for txt, meta in zip(store_data["documents"], store_data["metadatas"]):
+    # 메타데이터를 텍스트에 포함시켜 검색 품질 향상
+    enhanced_content = txt
+    if meta:
+        # 제목이 있으면 강조
+        if meta.get("title"):
+            enhanced_content = f"제목: {meta['title']}\n{txt}"
+        # 클래스명이 있으면 추가
+        if meta.get("class_name"):
+            enhanced_content += f"\n직업: {meta['class_name']}"
     
-    if not api_key:
+    docs_for_bm25.append(Document(page_content=enhanced_content, metadata=meta))
+
+bm25_retriever = BM25Retriever.from_documents(docs_for_bm25)
+bm25_retriever.k = 8
+
+# RRF → Ensemble
+rrf_retriever = EnsembleRetriever(
+    retrievers=[vector_retriever, bm25_retriever],
+    weights=[0.5, 0.5],
+)
+
+# Custom metadata-aware retriever wrapper
+class MetadataAwareRetriever:
+    def __init__(self, base_retriever):
+        self.base_retriever = base_retriever
+    
+    def get_relevant_documents(self, query):
+        docs = self.base_retriever.get_relevant_documents(query)
+        
+        # 메타데이터 기반 점수 조정
+        scored_docs = []
+        for doc in docs:
+            score = 1.0  # 기본 점수
+            meta = doc.metadata or {}
+            
+            # 최신성 점수 (date 기준)
+            if meta.get("date"):
+                try:
+                    date_str = meta["date"]
+                    if "2025" in date_str:
+                        score += 0.3  # 2025년 문서 가산점
+                    elif "2024" in date_str:
+                        score += 0.1  # 2024년 문서 소폭 가산점
+                except:
+                    pass
+            
+            # 인기도 점수 (views, likes 기준)
+            if meta.get("views"):
+                try:
+                    views = int(meta["views"])
+                    if views > 100000:
+                        score += 0.2
+                    elif views > 10000:
+                        score += 0.1
+                except:
+                    pass
+            
+            if meta.get("likes"):
+                try:
+                    likes = int(meta["likes"])
+                    if likes > 100:
+                        score += 0.1
+                    elif likes > 50:
+                        score += 0.05
+                except:
+                    pass
+            
+            # 품질 점수 (priority_score, content_score 기준)
+            if meta.get("priority_score"):
+                try:
+                    priority = float(meta["priority_score"])
+                    score += priority * 0.1  # priority_score를 점수에 반영
+                except:
+                    pass
+            
+            if meta.get("content_score"):
+                try:
+                    content_score = float(meta["content_score"])
+                    score += content_score * 0.01  # content_score를 점수에 반영
+                except:
+                    pass
+            
+            scored_docs.append((doc, score))
+        
+        # 점수순으로 정렬
+        scored_docs.sort(key=lambda x: x[1], reverse=True)
+        return [doc for doc, score in scored_docs[:8]]  # 상위 8개만 반환
+
+# Cross-Encoder 재랭킹
+cross_encoder = HuggingFaceCrossEncoder(
+    model_name="cross-encoder/ms-marco-MiniLM-L6-v2",
+    model_kwargs={"device": "cpu"}     
+)
+compressor = CrossEncoderReranker(
+    model=cross_encoder,
+    top_n=6                             
+)
+base_retriever = ContextualCompressionRetriever(
+    base_retriever=rrf_retriever,
+    base_compressor=compressor,
+)
+internal_retriever = MetadataAwareRetriever(base_retriever)
+
+# ───────────────────────────────────────────────
+# 3️⃣ 캐시 관련 함수
+def generate_cache_key(query):
+    return hashlib.md5(query.encode('utf-8')).hexdigest()
+
+def get_from_cache(query, cache_type='search'):
+    cache_key = generate_cache_key(query)
+    cache_file = CACHE_DIR / f"{cache_type}_{cache_key}.pkl"
+    
+    cache_expiry = 60 * 60 * 12  # 12시간
+    
+    if cache_file.exists():
+        file_age = time.time() - cache_file.stat().st_mtime
+        if file_age < cache_expiry:
+            try:
+                with open(cache_file, 'rb') as f:
+                    return pickle.load(f)
+            except Exception:
+                pass
+    return None
+
+def save_to_cache(query, result, cache_type='search'):
+    cache_key = generate_cache_key(query)
+    cache_file = CACHE_DIR / f"{cache_type}_{cache_key}.pkl"
+    
+    try:
+        with open(cache_file, 'wb') as f:
+            pickle.dump(result, f)
+    except Exception as e:
+        print(f"캐시 저장 중 오류: {e}")
+
+# ───────────────────────────────────────────────
+# 4️⃣ Perplexity 웹 검색
+def perplexity_web_search(query: str, max_results=3) -> List[Document]:
+    cached_result = get_from_cache(query, 'web_search')
+    if cached_result:
+        print("🔄 캐시된 웹 검색 결과 사용")
+        return cached_result
+    
+    if not PERPLEXITY_API_KEY:
         return []
     
     try:
+        start_time = time.time()
         client = OpenAI(
-            api_key=api_key,
+            api_key=PERPLEXITY_API_KEY,
             base_url="https://api.perplexity.ai"
         )
         
@@ -78,7 +218,7 @@ def perplexity_web_search(query, max_results=3):
                     "Format your response as clear, actionable points whenever possible."
                 )
             },
-            {"role": "user", "content": f"2025 최신 던전앤파이터 {query} 스펙업 가이드"}
+            {"role": "user", "content": f"2025 최신 던전앤파이터 {query} 명성별 스펙업 가이드"}
         ]
         
         response = client.chat.completions.create(
@@ -105,38 +245,86 @@ def perplexity_web_search(query, max_results=3):
         if citations:
             for citation in citations[:max_results]:
                 if isinstance(citation, dict):
-                    title = citation.get("title", "제목 없음")
-                    url = citation.get("url", "링크 없음")
+                    url = citation.get("url", "")
                     text = citation.get("text", "")
                 else:
-                    title = str(citation)
-                    url = "링크 없음"
+                    url = str(citation)
                     text = ""
-                docs.append(Document(
-                    page_content=f"{title}\n{text}",
-                    metadata={"title": title, "url": url, "source": "web_search"}
-                ))
-                
+                    
+                # URL이 있는 경우만 추가
+                if url and url != "링크 없음":
+                    docs.append(Document(
+                        page_content=text,
+                        metadata={"title": url, "url": url, "source": "web_search"}
+                    ))
+        
+        save_to_cache(query, docs, 'web_search')
+        
+        elapsed_time = time.time() - start_time
+        print(f"⏱️ 웹 검색 실행 시간: {elapsed_time:.2f}초")
+        
         return docs
             
     except Exception as e:
-        # 오류 발생 시 조용히 빈 리스트 반환
+        print(f"❌ 웹 검색 오류: {e}")
         return []
 
-# 5. 하이브리드 검색 함수
-def hybrid_search(query):
-    """내부 RAG와 웹 검색을 항상 모두 사용하는 하이브리드 검색"""
-    # 내부 RAG에서 정보 검색
-    internal_docs = internal_retriever.get_relevant_documents(query)
+# ───────────────────────────────────────────────
+# 5️⃣ 스마트 하이브리드 검색 (웹검색 항상 실행)
+def smart_hybrid_search(query):
+    start_time = time.time()
     
-    # 웹 검색 실행
-    web_docs = perplexity_web_search(query)
+    cached_result = get_from_cache(query, 'hybrid_search')
+    if cached_result:
+        print("[CACHE] 캐시된 하이브리드 검색 결과 사용")
+        return cached_result
     
-    # 문맥 구성
-    internal_context = "\n\n".join([doc.page_content for doc in internal_docs])
-    web_context = "\n\n".join([doc.page_content for doc in web_docs]) if web_docs else ""
+    def get_internal_results():
+        try:
+            docs = internal_retriever.get_relevant_documents(query)
+            print(f"[DEBUG] 내부 검색 결과: {len(docs)}개 문서 검색됨")
+            return docs
+        except Exception as e:
+            print(f"[ERROR] 내부 검색 오류: {e}")
+            return []
     
-    return {
+    def get_web_results():
+        try:
+            results = perplexity_web_search(query)
+            print(f"[DEBUG] 웹 검색 결과: {len(results)}개 문서 검색됨")
+            return results
+        except Exception as e:
+            print(f"[ERROR] 웹 검색 오류: {e}")
+            return []
+    
+    # 병렬 실행 (항상 웹검색 포함)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        internal_future = executor.submit(get_internal_results)
+        web_future = executor.submit(get_web_results)
+        
+        internal_docs = internal_future.result()
+        web_docs = web_future.result()
+    
+    # 결과 컨텍스트 구성 (URL 정보 포함)
+    internal_context_parts = []
+    for i, doc in enumerate(internal_docs):
+        content = f"[내부 문서 {i+1}] {doc.page_content}"
+        # URL 정보가 있으면 추가
+        if doc.metadata and doc.metadata.get("url"):
+            content += f"\n참고 링크: {doc.metadata['url']}"
+        internal_context_parts.append(content)
+    
+    internal_context = "\n\n".join(internal_context_parts)
+    
+    web_context = "\n\n".join([
+        f"[웹 문서 {i+1} - 2025년 최신 정보] {doc.page_content}"
+        for i, doc in enumerate(web_docs)
+    ]) if web_docs else ""
+    
+    if not internal_docs and not web_docs:
+        internal_context = "[검색 결과 없음] 질문과 관련된 정보를 찾지 못했습니다."
+    
+    result = {
         "all_docs": internal_docs + web_docs,
         "internal_docs": internal_docs,
         "web_docs": web_docs,
@@ -144,34 +332,60 @@ def hybrid_search(query):
         "web_context": web_context,
         "used_web_search": len(web_docs) > 0
     }
+    
+    save_to_cache(query, result, 'hybrid_search')
+    
+    elapsed_time = time.time() - start_time
+    print(f"[TIME] 하이브리드 검색 실행 시간: {elapsed_time:.2f}초")
+    
+    return result
 
-# 6. 하이브리드 프롬프트 템플릿
+# ───────────────────────────────────────────────
+# 6️⃣ LLM & 프롬프트 (Gemini 2.5 Flash)
+llm = ChatGoogleGenerativeAI(
+    google_api_key=GEMINI_API_KEY,
+    model="models/gemini-2.5-flash-preview-05-20",
+    temperature=0,
+)
+
+# 개선된 하이브리드 프롬프트 템플릿
 hybrid_prompt = PromptTemplate(
     input_variables=["internal_context", "web_context", "question"],
     template="""
 당신은 던전앤파이터 전문 스펙업 가이드 챗봇입니다.
-다음 두 가지 정보 소스를 활용하여 사용자 질문에 답변하세요.
+중요: 반드시 제공된 정보만 사용하여 답변하세요. 제공된 정보에 없는 내용은 "해당 정보를 찾을 수 없습니다"라고 답변하세요.
 
-1. 내부 데이터베이스 정보 (기존 가이드 및 커뮤니티 정보):
+다음 두 가지 정보 소스를 활용하여 사용자 질문에 답변하세요:
+
+1. 내부 데이터베이스 정보 (주요 정보원 - 기존 가이드 및 커뮤니티 정보):
 {internal_context}
 
-2. 웹 검색 정보 (최신 업데이트 및 추가 정보):
+2. 웹 검색 정보 (보조 정보원 - 최신 업데이트 및 추가 정보):
 {web_context}
 
-정보 가중치 지침:
-- 웹 검색 정보에 50%, 내부 데이터베이스 정보에 50%의 가중치를 두고 응답을 구성하세요.
-- 두 정보 소스가 상충할 경우 최신 정보를 우선하세요.
-- 웹 검색 결과가 부족하거나 없는 경우에도 최선을 다해 내부 데이터베이스 정보를 활용하세요.
+반드시 지켜야 할 규칙:
+1. 제공된 정보 소스에 없는 내용은 절대 답변하지 마세요.
+2. 자체 지식이나 과거 데이터를 사용하지 마세요.
+3. 정보가 부족한 경우 "제공된 정보에서 해당 내용을 찾을 수 없습니다"라고 정직하게 답변하세요.
+4. 중요한 정보는 어떤 소스에서 가져왔는지 표시하세요(예: "내부 문서에 따르면..." 또는 "웹 검색 결과에 따르면...").
+
+정보 처리 지침:
+- 우선순위: 내부 데이터베이스 정보를 주요 정보원으로 사용하고, 웹 검색 정보는 보조적으로 활용하세요.
+- 일관성: 정보 소스 간에 충돌이 있으면 최신 정보(2025년)를 우선시하세요.
+- 명확성: 확실한 정보와 불확실한 정보를 구분하여 전달하세요.
+- 간결성: 불필요한 서론 없이 핵심 정보만 요약해서 간략하게 전달하세요.
+- 구체성: 스펙업 추천은 구체적인 단계와 이유를 포함해야 합니다.
 
 응답 형식 지침:
-- 2025년 이전의 데이터는 의미가 없으니 참조하지 마세요.
-- 불필요한 서론이나 배경 설명 없이 핵심 정보만 전달하세요.
-- 스펙업 순서나 우선순위를 제시할 때는 단계별로 명확하게 안내하세요.
-- 1,2,3 이런식으로 순서를 통해 우선순위를 제시하세요.
-- 신뢰성이 높은 정보는 더 상세하게 제공하세요.
-- 신뢰성이 떨어지는 정보는 명칭을 생략하는 식으로 추상화하여 짧게 제공하세요.
-- 캐릭터 직업을 말하지 않는 경우엔 공통적인 내용만 설명하세요.
-- 상황에 따라 던파 API 사이트를 적절히 추천해주는 방식을 채용하세요.
+- 사용자가 묻지 않은 내용은 설명하지 마세요.
+- 직업이 언급되면 해당 직업에 맞는 정보를 우선 제공하세요.
+- 2025년 최신 패치 내용을 우선적으로 반영하세요.
+- 던파 관련 API나 공식 정보 소스가 있다면 적절히 추천하세요.
+
+이벤트 관련 답변 시 주의사항:
+1. 이벤트 종료일이 현재 날짜(2025-05-22) 이후인 경우에만 이벤트 참여를 권장하세요
+2. 이벤트가 이미 종료된 경우 "해당 이벤트는 종료되었습니다"라고 명시하세요
+3. 이벤트 종료일 정보가 없는 경우 "이벤트 종료일을 확인해주세요"라고 안내하세요
 
 사용자 질문: {question}
 
@@ -179,66 +393,98 @@ hybrid_prompt = PromptTemplate(
 """
 )
 
-# 7. 하이브리드 체인 설정
-hybrid_chain = LLMChain(llm=llm, prompt=hybrid_prompt)
-
-# 8. 통합 응답 생성 함수
+# ───────────────────────────────────────────────
+# 7️⃣ 통합 응답 생성 함수
 def get_answer(query):
-    # 하이브리드 검색 실행
-    search_results = hybrid_search(query)
+    total_start_time = time.time()
     
-    # 하이브리드 방식 사용
-    response = hybrid_chain.run(
+    search_results = smart_hybrid_search(query)
+    
+    llm_start_time = time.time()
+    
+    # 프롬프트 템플릿 적용
+    formatted_prompt = hybrid_prompt.format(
         internal_context=search_results["internal_context"],
         web_context=search_results["web_context"],
         question=query
     )
+    
+    response = llm.invoke(formatted_prompt).content
+    
+    llm_elapsed_time = time.time() - llm_start_time
+    total_elapsed_time = time.time() - total_start_time
+    
+    print(f"⏱️ LLM 응답 생성 시간: {llm_elapsed_time:.2f}초")
+    print(f"⏱️ 전체 실행 시간: {total_elapsed_time:.2f}초")
     
     return {
         "result": response,
         "source_documents": search_results["all_docs"],
         "used_web_search": search_results["used_web_search"],
         "internal_docs": search_results["internal_docs"], 
-        "web_docs": search_results["web_docs"]
+        "web_docs": search_results["web_docs"],
+        "execution_times": {
+            "total": total_elapsed_time,
+            "llm": llm_elapsed_time
+        }
     }
 
-# 9. 명령행 인수로 질문을 받아 한 번만 답변하는 메인 함수
-def main():
-    # 명령행 인수로 질문을 받음
-    if len(sys.argv) > 1:
-        # 명령행 인수로 전달된 질문 사용
-        query = " ".join(sys.argv[1:])
-    else:
-        # 명령행 인수가 없으면 표준 입력에서 한 줄 읽기
-        print("던파 스펙업 가이드 챗봇\n")
-        query = input("질문: ")
-    
-    if not query or query.lower() in ['exit', 'quit', '종료']:
-        print("질문이 없습니다.")
-        return
-    
-    # 응답 생성
-    result = get_answer(query)
-    
-    # 웹 검색 성공/실패 여부 출력
-    if result["used_web_search"]:
-        print("\n✅ 웹 검색 및 내부 DB 사용")
-    else:
-        print("\n⚠️ 웹 검색 실패 - 내부 DB만 사용")
-    
-    # 결과 출력
-    print("\n답변:")
-    print(result["result"])
-    
-    # 출처 정보 출력
-    print("\n출처:")
-    
-    # 출처 문서 출력 (웹 검색 결과 먼저, 그 다음 내부 DB)
-    for doc in result["web_docs"]:
-        print(f"🌐 {doc.metadata.get('title', '제목 없음')} ({doc.metadata.get('url', '링크 없음')})")
-        
-    for doc in result["internal_docs"][:3]:  # 내부 DB는 상위 3개만 표시
-        print(f"🗄️ {doc.metadata.get('title', '제목 없음')} ({doc.metadata.get('url', '링크 없음')})")
+# ───────────────────────────────────────────────
+# 8️⃣ 콘솔 채팅 함수
+def ask_once(q: str):
+    result = get_answer(q)
+    return result["result"]
 
 if __name__ == "__main__":
-    main()
+    import argparse, sys
+
+    parser = argparse.ArgumentParser(description="DF Console RAG")
+    parser.add_argument("-q", "--query", type=str, help="한 번만 질문하고 종료")
+    args = parser.parse_args()
+
+    if args.query:
+        print(ask_once(args.query))
+        sys.exit()
+
+    # 대화형 루프
+    print("💬 DF-RAG 콘솔 챗 (exit 입력 시 종료)")
+    while True:
+        try:
+            user_in = input("\n▶︎ 질문: ").strip()
+            if not user_in or user_in.lower().startswith("exit"):
+                break
+            print("🧠 thinking …")
+            
+            # 상세 결과 출력
+            result = get_answer(user_in)
+            
+            # 검색 소스 정보 출력 (항상 웹검색 포함)
+            print("\n✅ 내부 DB + 웹 검색 사용")
+            
+            print("\n답변:")
+            print(result["result"])
+            
+            print(f"\n소요 시간: {result['execution_times']['total']:.2f}초 (LLM: {result['execution_times']['llm']:.2f}초)")
+            
+            # 출처 정보 출력
+            print("\n출처:")
+            
+            for doc in result["web_docs"]:
+                title = doc.metadata.get('title', '')
+                if title == "Perplexity 검색 결과":
+                    print(f"🌐 {title}")
+                elif title.startswith('http'):  # URL인 경우
+                    print(f"🌐 {title}")
+                else:
+                    print(f"🌐 {title}")
+                
+            for doc in result["internal_docs"][:3]:
+                title = doc.metadata.get('title', '제목 없음')
+                url = doc.metadata.get('url', '') or doc.metadata.get('source', '')
+                if url:
+                    print(f"🗄️ {title} - {url}")
+                else:
+                    print(f"🗄️ {title}")
+                
+        except (KeyboardInterrupt, EOFError):
+            break

@@ -3,19 +3,41 @@ openai>=1.0.0
 python-dotenv>=1.0.0
 requests>=2.28.0
 
-# 벡터 저장소 및 임베딩
+# LLM 및 임베딩 (Gemini 추가)
 langchain>=0.1.0
 langchain-openai>=0.0.5
 langchain-community>=0.0.13
 langchain-chroma>=0.0.1
+langchain-google-genai>=1.0.0
 chromadb>=0.4.22
+
+# 텍스트 처리 및 검색
+kiwipiepy>=0.18.0
+rank-bm25>=0.2.2
+sentence-transformers>=2.2.0
+
+# 크로스 인코더 재랭킹
+transformers>=4.30.0
+torch>=2.0.0
 
 # 크롤링 관련 도구
 beautifulsoup4>=4.12.2
 cloudscraper>=1.2.71
 youtube-transcript-api>=0.6.1
+selenium>=4.15.0
 
 # 데이터 처리 및 유틸리티
 pillow>=10.0.0
 easyocr>=1.7.1
 numpy>=1.24.0
+pandas>=2.0.0
+
+# 로그 및 모니터링
+loguru>=0.7.0
+
+# 비동기 처리
+aiohttp>=3.8.0
+
+# 유틸리티
+tqdm>=4.65.0
+pathlib>=1.0.1
