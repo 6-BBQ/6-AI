@@ -4,26 +4,11 @@ import argparse, sys, textwrap, os, json, time
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import logging
 
 from official_crawler import crawl_df
 from dc_crawler import crawl_dcinside
 from arca_crawler import crawl_arca
 from youtube_crawler import crawl_youtube
-
-# 로깅 설정
-log_file = f"logs/crawler_{datetime.now():%Y%m%d_%H%M%S}.log"
-os.makedirs(os.path.dirname(log_file), exist_ok=True)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(log_file)
-    ]
-)
-logger = logging.getLogger("crawler")
 
 # 방문한 URL 저장소 (증분 크롤링 지원)
 VISITED_URLS_FILE = "data/visited_urls.json"
@@ -36,7 +21,6 @@ def load_visited_urls():
                 return set(json.load(f))
         return set()
     except Exception as e:
-        logger.error(f"방문 URL 목록 로드 오류: {e}")
         return set()
 
 def save_visited_urls(urls):
@@ -48,21 +32,18 @@ def save_visited_urls(urls):
         with open(VISITED_URLS_FILE, "w", encoding="utf-8") as f:
             json.dump(list(urls), f, ensure_ascii=False)
     except Exception as e:
-        logger.error(f"방문 URL 목록 저장 오류: {e}")
+        pass
 
 def run_crawler(crawler_func, *args, **kwargs):
     """크롤러 실행 함수 (에러 처리 포함)"""
     start_time = time.time()
     func_name = crawler_func.__name__
-    logger.info(f"{func_name} 시작")
     
     try:
         result = crawler_func(*args, **kwargs)
         elapsed = time.time() - start_time
-        logger.info(f"{func_name} 완료: {len(result)}개 항목 ({elapsed:.1f}초)")
         return result
     except Exception as e:
-        logger.error(f"{func_name} 실행 중 오류: {e}")
         return []
 
 def main():
@@ -96,9 +77,8 @@ def main():
         try:
             if os.path.exists(VISITED_URLS_FILE):
                 os.remove(VISITED_URLS_FILE)
-                logger.info("방문 URL 기록을 초기화했습니다.")
         except Exception as e:
-            logger.error(f"방문 URL 기록 초기화 중 오류: {e}")
+            pass
         return
 
     print(f"\n🔔 통합 크롤링 시작 ({datetime.now():%Y-%m-%d %H:%M:%S})\n"
@@ -109,7 +89,6 @@ def main():
     
     # 증분 크롤링을 위한 방문 URL 로드
     visited_urls = load_visited_urls() if args.incremental else set()
-    logger.info(f"이전에 방문한 URL: {len(visited_urls)}개")
     
     # 크롤링할 소스 결정
     sources = args.sources.lower().split(',')
@@ -152,22 +131,17 @@ def main():
                     count = len(task_results)
                     results[task_name] = count
                     all_results.extend(task_results)
-                    logger.info(f"[{i+1}/{len(crawl_tasks)}] {task_name} 크롤링 완료: {count}개 항목")
                 except Exception as e:
-                    logger.error(f"{task_name} 크롤링 오류: {e}")
                     results[task_name] = 0
     else:
         # 순차 실행
         for i, (task_name, task_func) in enumerate(crawl_tasks):
-            logger.info(f"[{i+1}/{len(crawl_tasks)}] {task_name} 크롤링 시작")
             try:
                 task_results = task_func()
                 count = len(task_results)
                 results[task_name] = count
                 all_results.extend(task_results)
-                logger.info(f"[{i+1}/{len(crawl_tasks)}] {task_name} 크롤링 완료: {count}개 항목")
             except Exception as e:
-                logger.error(f"{task_name} 크롤링 오류: {e}")
                 results[task_name] = 0
     
     # 실행 시간 계산
@@ -178,7 +152,6 @@ def main():
         original_count = len(all_results)
         all_results = [item for item in all_results if item.get("content_score", 0) >= args.quality_threshold]
         filtered_count = original_count - len(all_results)
-        logger.info(f"품질 필터링: {filtered_count}개 항목 제외 (임계값: {args.quality_threshold})")
     
     # 결과 병합 저장
     if args.merge and all_results:
@@ -187,13 +160,10 @@ def main():
         
         with open(merged_file, "w", encoding="utf-8") as f:
             json.dump(all_results, f, ensure_ascii=False, indent=2)
-        
-        logger.info(f"병합 결과 저장: {merged_file} ({len(all_results)}개 항목)")
     
     # 증분 크롤링인 경우 방문 URL 저장
     if args.incremental:
         save_visited_urls(visited_urls)
-        logger.info(f"방문 URL 목록 저장 완료: {len(visited_urls)}개")
     
     # 결과 요약
     print("\n모든 크롤링 완료!")

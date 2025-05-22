@@ -3,26 +3,65 @@ import math, re, json, logging
 from datetime import datetime, timezone
 from pathlib import Path
 from bs4 import BeautifulSoup
+from typing import Optional
+from rapidfuzz import process
+from kiwipiepy import Kiwi
 
 # 로깅 설정
 logger = logging.getLogger("crawler")
 
-# 1. 직업명/각성명 사전 로드  (job_names.json 은 같은 폴더에 두세요)
 _JOB_JSON = Path(__file__).with_name("job_names.json")
-if _JOB_JSON.exists():
-    _JOB_SET: set[str] = set(json.loads(_JOB_JSON.read_text(encoding="utf-8")))
-else:  # 혹시 파일 없을 때 최소 직업 세트
-    _JOB_SET = {}
-_JOB_PATTERN = re.compile("|".join(map(re.escape, sorted(_JOB_SET, key=len, reverse=True))))
+kiwi = Kiwi()
 
-def detect_class_name(title: str, body: str | None = None) -> str | None:
-    """제목/본문에서 직업·각성명이 보이면 반환, 없으면 None"""
-    text = f"{title} {body or ''}"
+try:
+    _JOB_LIST: list[str] = json.loads(_JOB_JSON.read_text(encoding="utf-8"))
+    _JOB_SET: set[str] = set(_JOB_LIST)
+except Exception as e:
+    print(f"⚠️ 직업명 JSON 로딩 오류: {e}")
+    _JOB_LIST = []
+    _JOB_SET = set()
+
+_BOUNDARY = r"(?<![가-힣A-Za-z0-9])(?:{names})(?![가-힣A-Za-z0-9])"
+_JOB_PATTERN = re.compile(
+    _BOUNDARY.format(
+        names="|".join(map(re.escape, sorted(_JOB_SET, key=len, reverse=True)))
+    ),
+    re.IGNORECASE,
+)
+
+CONTEXT_KEYWORDS = {"공략", "가이드", "세팅", "스펙업", "뉴비", "팁"}
+
+def detect_class_name(title: str, body: Optional[str] = None) -> Optional[str]:
+    if not title:
+        return None
+
+    text = f"{title} {body or ''}".lower()
+
+    # 1️⃣ 정규식 기반 직업 탐지
     m = _JOB_PATTERN.search(text)
-    return m.group(0) if m else None
+    if m:
+        return m.group(0)
+
+    # 2️⃣ Kiwi 기반 토큰화
+    try:
+        tokens = set(word.form for word in kiwi.tokenize(text))
+        hit = _JOB_SET.intersection(tokens)
+        if hit:
+            return next(iter(hit))
+    except Exception as e:
+        logger.warning(f"Kiwi 오류: {e}")
+
+    # 3️⃣ Fuzzy Matching (조건부)
+    if len(title) < 25 and any(k in text for k in CONTEXT_KEYWORDS):
+        match, score, _ = process.extractOne(
+            title.replace(" ", ""), _JOB_LIST, score_cutoff=92
+        )
+        if score >= 92:
+            return match
+
+    return None
 
 # ────────────────── 텍스트 처리 유틸 ──────────────────
-
 def clean_text(text):
     """텍스트 정리 (HTML 태그 제거, 연속 공백 제거 등)"""
     if not text:

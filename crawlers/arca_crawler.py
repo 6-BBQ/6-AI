@@ -2,7 +2,6 @@
 import json
 import time
 import cloudscraper
-import logging
 from datetime import datetime
 from pathlib import Path
 from bs4 import BeautifulSoup, NavigableString
@@ -10,9 +9,6 @@ from utils import (
     build_item, clean_text, calculate_content_score,
     should_process_url, filter_by_keywords
 )
-
-# 로깅 설정
-logger = logging.getLogger("crawler.arca")
 
 # ──────────────────────────────────────────────
 HEADERS = {"User-Agent": "Mozilla/5.0"}
@@ -60,7 +56,6 @@ def get_new_scraper():
         scraper.headers.update(HEADERS)
         return scraper
     except Exception as e:
-        logger.error(f"스크래퍼 생성 오류: {e}")
         # 기본 스크래퍼로 대체
         return cloudscraper.create_scraper()
 
@@ -73,10 +68,8 @@ def get_post_list(page_num):
         resp = scraper.get(url, timeout=15)  # 아카라이브는 로딩이 느릴 수 있어 타임아웃 증가
         soup = BeautifulSoup(resp.text, "html.parser")
         posts = soup.select("a.vrow")
-        logger.info(f"페이지 {page_num}: {len(posts)}개 게시글 발견")
         return posts
     except Exception as e:
-        logger.error(f"게시글 목록 가져오기 오류 (페이지 {page_num}): {e}")
         return []
 
 # 📌 2. 게시글 URL 및 제목 추출
@@ -102,7 +95,6 @@ def crawl_post_content(post_url, visited_urls, depth=0, max_depth=2):
     """게시글 내용 크롤링 및 재귀적으로 링크 탐색"""
     # 증분 크롤링: 이미 방문한 URL이면 건너뜀
     if not should_process_url(post_url, visited_urls):
-        logger.debug(f"이미 방문한 URL: {post_url}")
         return []
 
     # 방문 기록에 추가
@@ -134,7 +126,6 @@ def crawl_post_content(post_url, visited_urls, depth=0, max_depth=2):
 
         # 2025년 게시글만 허용
         if not is_valid_date(date_text):
-            logger.debug(f"2025년 이전 글 건너뜀: {post_url} ({date_text})")
             return []
 
         # 조회수 추출
@@ -180,9 +171,6 @@ def crawl_post_content(post_url, visited_urls, depth=0, max_depth=2):
                 likes=like_count
             )
             results.append(item)
-            logger.info(f"게시글 수집 (점수: {content_score:.1f}): {title_text[:30]}")
-        else:
-            logger.debug(f"저품질 게시글 제외 (점수: {content_score:.1f}): {title_text[:30]}")
 
         # 🔁 본문 내 추가 게시글 링크 (depth 제한 포함)
         if content_div and depth < max_depth:
@@ -203,7 +191,7 @@ def crawl_post_content(post_url, visited_urls, depth=0, max_depth=2):
         time.sleep(0.1)
 
     except Exception as e:
-        logger.error(f"게시글 처리 오류 ({post_url}): {e}")
+        pass
 
     return results
 
@@ -213,9 +201,6 @@ def crawl_arca(max_pages=2, max_depth=2, visited_urls=None):
     # 증분 크롤링을 위한 방문 URL 관리
     if visited_urls is None:
         visited_urls = set()
-        logger.info("새로운 크롤링 세션 시작 (아카라이브)")
-    else:
-        logger.info(f"증분 크롤링 시작 (기존 URL {len(visited_urls)}개)")
     
     results = []
     notice_processed = False
@@ -224,7 +209,6 @@ def crawl_arca(max_pages=2, max_depth=2, visited_urls=None):
     try:
         # 페이지별 크롤링
         for page in range(1, max_pages + 1):
-            logger.info(f"\n페이지 {page} 크롤링 중...")
             posts = get_post_list(page)
 
             # 게시글별 처리
@@ -235,7 +219,6 @@ def crawl_arca(max_pages=2, max_depth=2, visited_urls=None):
                     
                 # 키워드 기반 필터링
                 if not filter_by_keywords(title_text, FILTER_KEYWORDS, EXCLUDE_KEYWORDS):
-                    logger.debug(f"제목 필터링: {title_text}")
                     continue
 
                 # 공지글 확인
@@ -244,7 +227,6 @@ def crawl_arca(max_pages=2, max_depth=2, visited_urls=None):
                 # 공지글은 한 번만 처리
                 if is_notice:
                     if not notice_processed:
-                        logger.info(f"공지글 수집: {post_url}")
                         results.extend(crawl_post_content(post_url, visited_urls, depth=0, max_depth=max_depth))
                     continue
                 else:
@@ -258,13 +240,6 @@ def crawl_arca(max_pages=2, max_depth=2, visited_urls=None):
         # 결과 요약
         elapsed_time = time.time() - start_time
         avg_time_per_post = elapsed_time / len(results) if results else 0
-        logger.info(f"\n크롤링 완료: 총 {len(results)}개 (소요 시간: {elapsed_time:.1f}초, 게시글당 {avg_time_per_post:.2f}초)")
-
-        # 품질 정보
-        if results:
-            content_scores = [item.get("content_score", 0) for item in results]
-            avg_score = sum(content_scores) / len(content_scores)
-            logger.info(f"평균 품질 점수: {avg_score:.1f} (최소: {min(content_scores):.1f}, 최대: {max(content_scores):.1f})")
 
         # 결과 저장
         save_dir = Path(SAVE_PATH).parent
@@ -273,24 +248,12 @@ def crawl_arca(max_pages=2, max_depth=2, visited_urls=None):
         with open(SAVE_PATH, "w", encoding="utf-8") as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
         
-        logger.info(f"결과 저장 완료: {SAVE_PATH}")
-        
     except Exception as e:
-        logger.error(f"크롤링 중 오류 발생: {e}")
+        pass
     
     return results
 
 # 스크립트 직접 실행 시
 if __name__ == "__main__":
-    # 로깅 설정
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(f"arca_crawler_{datetime.now():%Y%m%d}.log")
-        ]
-    )
-    
     # 테스트 실행
     crawl_arca(max_pages=2, max_depth=2)
