@@ -5,7 +5,7 @@ from typing import Dict, List
 from pathlib import Path
 from dotenv import load_dotenv
 
-# 🆕 LLM & 임베딩
+# LLM & 임베딩
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import OpenAIEmbeddings
 from langchain_chroma import Chroma
@@ -29,14 +29,14 @@ CACHE_DIR = Path("cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
 # ───────────────────────────────────────────────
-# 1️⃣ 환경 변수
+# 환경 변수
 GEMINI_API_KEY       = os.getenv("GEMINI_API_KEY")
 PERPLEXITY_API_KEY   = os.getenv("PERPLEXITY_API_KEY")
 if not GEMINI_API_KEY:
     raise RuntimeError("GEMINI_API_KEY 환경변수 필요!")
 
 # ───────────────────────────────────────────────
-# 2️⃣ 내부 RAG 초기화
+# 내부 RAG 초기화
 print("🚀 DF-RAG 시스템 초기화 중...")
 init_start_time = time.time()
 
@@ -52,7 +52,7 @@ vector_retriever = vectordb.as_retriever(
 )
 print("✅ 벡터 DB 로딩 완료")
 
-# BM25 with enhanced metadata and caching
+# BM25
 def build_bm25_index():
     """BM25 인덱스를 구축하고 캐싱"""
     print("🔄 BM25 인덱스 구축 중...")
@@ -107,7 +107,6 @@ def load_bm25_index():
     # 캐시가 없거나 만료된 경우 새로 구축
     return build_bm25_index()
 
-# BM25 로드
 bm25_retriever = load_bm25_index()
 
 # RRF → Ensemble
@@ -129,38 +128,6 @@ class MetadataAwareRetriever:
         for doc in docs:
             score = 1.0  # 기본 점수
             meta = doc.metadata or {}
-            
-            # 최신성 점수 (date 기준)
-            if meta.get("date"):
-                try:
-                    date_str = meta["date"]
-                    if "2025" in date_str:
-                        score += 0.3  # 2025년 문서 가산점
-                    elif "2024" in date_str:
-                        score += 0.1  # 2024년 문서 소폭 가산점
-                except:
-                    pass
-            
-            # 인기도 점수 (views, likes 기준)
-            if meta.get("views"):
-                try:
-                    views = int(meta["views"])
-                    if views > 100000:
-                        score += 0.2
-                    elif views > 10000:
-                        score += 0.1
-                except:
-                    pass
-            
-            if meta.get("likes"):
-                try:
-                    likes = int(meta["likes"])
-                    if likes > 100:
-                        score += 0.1
-                    elif likes > 50:
-                        score += 0.05
-                except:
-                    pass
             
             # 품질 점수 (priority_score, content_score 기준)
             if meta.get("priority_score"):
@@ -236,7 +203,7 @@ print(f"🎉 시스템 초기화 완료! (소요시간: {init_elapsed_time:.2f}�
 print("💬 질문을 입력하세요...\n")
 
 # ───────────────────────────────────────────────
-# 3️⃣ 캐시 관련 함수
+# 캐시 관련 함수
 def generate_cache_key(query):
     return hashlib.md5(query.encode('utf-8')).hexdigest()
 
@@ -267,7 +234,7 @@ def save_to_cache(query, result, cache_type='search'):
         print(f"캐시 저장 중 오류: {e}")
 
 # ───────────────────────────────────────────────
-# 4️⃣ Perplexity 웹 검색
+# Perplexity 웹 검색
 def perplexity_web_search(query: str, max_results=3) -> List[Document]:
     cached_result = get_from_cache(query, 'web_search')
     if cached_result:
@@ -349,7 +316,7 @@ def perplexity_web_search(query: str, max_results=3) -> List[Document]:
         return []
 
 # ───────────────────────────────────────────────
-# 5️⃣ 스마트 하이브리드 검색 (웹검색 항상 실행)
+# 스마트 하이브리드 검색
 def smart_hybrid_search(query):
     start_time = time.time()
     
@@ -420,14 +387,14 @@ def smart_hybrid_search(query):
     return result
 
 # ───────────────────────────────────────────────
-# 6️⃣ LLM & 프롬프트 (Gemini 2.5 Flash)
+# LLM & 프롬프트 (Gemini 2.5 Flash)
 llm = ChatGoogleGenerativeAI(
     google_api_key=GEMINI_API_KEY,
     model="models/gemini-2.5-flash-preview-05-20",
     temperature=0,
 )
 
-# 개선된 하이브리드 프롬프트 템플릿
+# 프롬프트 템플릿
 hybrid_prompt = PromptTemplate(
     input_variables=["internal_context", "web_context", "question"],
     template="""
@@ -473,7 +440,7 @@ hybrid_prompt = PromptTemplate(
 )
 
 # ───────────────────────────────────────────────
-# 7️⃣ 통합 응답 생성 함수
+# 통합 응답 생성 함수
 def get_answer(query):
     total_start_time = time.time()
     
