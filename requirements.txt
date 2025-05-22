@@ -1,55 +1,115 @@
-# API 및 기본 의존성
-openai>=1.0.0
+# ==========================================
+# EC2 배포용 Python 의존성 패키지 목록
+# ==========================================
+
+# ──────────── 기본 Python 패키지 ────────────
 python-dotenv>=1.0.0
 requests>=2.28.0
+pathlib>=1.0.1
 
-# FastAPI 관련
+# ──────────── FastAPI & 웹서버 ────────────
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
-pyjwt>=2.8.0
 python-multipart>=0.0.6
 
-# LLM 및 임베딩 (Gemini 추가)
+# ──────────── JWT 인증 ────────────
+pyjwt>=2.8.0
+
+# ──────────── LLM & AI 프레임워크 ────────────
+# OpenAI
+openai>=1.0.0
 langchain>=0.1.0
 langchain-openai>=0.0.5
 langchain-community>=0.0.13
-langchain-chroma>=0.0.1
+
+# Google Gemini
 langchain-google-genai>=1.0.0
+google-generativeai>=0.3.0
+google-genai>=0.1.0
+
+# ──────────── 벡터 데이터베이스 ────────────
+langchain-chroma>=0.0.1
 chromadb>=0.4.22
 
-# 텍스트 처리 및 검색
-kiwipiepy>=0.18.0
+# ──────────── 검색 & 임베딩 ────────────
+# BM25 검색
 rank-bm25>=0.2.2
-sentence-transformers>=2.2.0
 
 # 크로스 인코더 재랭킹
+sentence-transformers>=2.2.0
 transformers>=4.30.0
 torch>=2.0.0
 
-# 크롤링 관련 도구
+# ──────────── 한국어 NLP ────────────
+kiwipiepy>=0.18.0
+
+# ──────────── 텍스트 유사도 ────────────
+rapidfuzz>=3.0.0
+
+# ──────────── 크롤링 & 웹 스크래핑 ────────────
 beautifulsoup4>=4.12.2
 cloudscraper>=1.2.71
-youtube-transcript-api>=0.6.1
 selenium>=4.15.0
 
-# 데이터 처리 및 유틸리티
+# YouTube API
+youtube-transcript-api>=0.6.1
+
+# ──────────── 이미지 처리 & OCR ────────────
 pillow>=10.0.0
 easyocr>=1.7.1
+
+# ──────────── YouTube 처리 ────────────
+yt-dlp>=2024.11.0
+youtube-transcript-api>=0.6.1
+
+# ──────────── 데이터 처리 ────────────
 numpy>=1.24.0
 pandas>=2.0.0
 
-# 로그 및 모니터링
-loguru>=0.7.0
-
-# 비동기 처리
+# ──────────── 비동기 처리 ────────────
 aiohttp>=3.8.0
 
-# 유틸리티
+# ──────────── 유틸리티 ────────────
 tqdm>=4.65.0
-pathlib>=1.0.1
+loguru>=0.7.0
 
-# Google Gemini API
-google-generativeai>=0.3.0
-
-# Pydantic 버전 고정 (호환성)
+# ──────────── Pydantic (호환성) ────────────
 pydantic>=2.0.0,<3.0.0
+
+# ──────────── EC2 배포 전용 추가 패키지 ────────────
+# 시스템 모니터링
+psutil>=5.9.0
+
+# 프로세스 관리 (Gunicorn 대안)
+gunicorn>=21.2.0
+
+# 환경 설정
+click>=8.1.0
+
+# 로깅 강화
+structlog>=23.1.0
+
+# 메모리 효율성
+memory-profiler>=0.61.0
+
+# Base64 처리 (기본 내장이지만 명시)
+# base64는 Python 표준 라이브러리
+
+# ──────────── 선택적 패키지 (성능 최적화) ────────────
+# GPU 가속 (CUDA 사용 가능시)
+# torch-audio>=2.0.0  # 필요시 주석 해제
+
+# 더 빠른 JSON 처리
+orjson>=3.9.0
+
+# 더 빠른 HTTP 클라이언트
+httpx>=0.25.0
+
+# ──────────── 개발/테스트 전용 (운영시 제거 가능) ────────────
+# 테스트 프레임워크
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# 코드 포맷팅
+black>=23.0.0
+isort>=5.12.0
