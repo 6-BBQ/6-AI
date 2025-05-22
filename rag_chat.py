@@ -5,8 +5,6 @@ from typing import Dict, List
 from pathlib import Path
 from dotenv import load_dotenv
 
-
-
 # 🆕 LLM & 임베딩
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import OpenAIEmbeddings
@@ -38,35 +36,79 @@ if not GEMINI_API_KEY:
     raise RuntimeError("GEMINI_API_KEY 환경변수 필요!")
 
 # ───────────────────────────────────────────────
-# 2️⃣ 내부 RAG (기존과 동일)
+# 2️⃣ 내부 RAG 초기화
+print("🚀 DF-RAG 시스템 초기화 중...")
+init_start_time = time.time()
+
 CHROMA_DIR   = "vector_db/chroma"
 EMBED_MODEL  = "text-embedding-3-large"
 embed_fn     = OpenAIEmbeddings(model=EMBED_MODEL)
 
+print("🔄 벡터 DB 로딩...")
 vectordb = Chroma(persist_directory=CHROMA_DIR, embedding_function=embed_fn)
 vector_retriever = vectordb.as_retriever(
     search_type="mmr",
     search_kwargs={"k": 8, "fetch_k": 15, "lambda_mult": 0.8},
 )
+print("✅ 벡터 DB 로딩 완료")
 
-# BM25 with enhanced metadata
-store_data = vectordb.get(include=["documents", "metadatas"])
-docs_for_bm25 = []
-for txt, meta in zip(store_data["documents"], store_data["metadatas"]):
-    # 메타데이터를 텍스트에 포함시켜 검색 품질 향상
-    enhanced_content = txt
-    if meta:
-        # 제목이 있으면 강조
-        if meta.get("title"):
-            enhanced_content = f"제목: {meta['title']}\n{txt}"
-        # 클래스명이 있으면 추가
-        if meta.get("class_name"):
-            enhanced_content += f"\n직업: {meta['class_name']}"
+# BM25 with enhanced metadata and caching
+def build_bm25_index():
+    """BM25 인덱스를 구축하고 캐싱"""
+    print("🔄 BM25 인덱스 구축 중...")
+    store_data = vectordb.get(include=["documents", "metadatas"])
+    docs_for_bm25 = []
+    for txt, meta in zip(store_data["documents"], store_data["metadatas"]):
+        # 메타데이터를 텍스트에 포함시켜 검색 품질 향상
+        enhanced_content = txt
+        if meta:
+            # 제목이 있으면 강조
+            if meta.get("title"):
+                enhanced_content = f"제목: {meta['title']}\n{txt}"
+            # 클래스명이 있으면 추가
+            if meta.get("class_name"):
+                enhanced_content += f"\n직업: {meta['class_name']}"
+        
+        docs_for_bm25.append(Document(page_content=enhanced_content, metadata=meta))
     
-    docs_for_bm25.append(Document(page_content=enhanced_content, metadata=meta))
+    bm25_retriever = BM25Retriever.from_documents(docs_for_bm25)
+    bm25_retriever.k = 8
+    
+    # 캐싱 저장
+    cache_file = CACHE_DIR / "bm25_index.pkl"
+    try:
+        with open(cache_file, 'wb') as f:
+            pickle.dump(bm25_retriever, f)
+        print(f"✅ BM25 인덱스 캐시 저장: {cache_file}")
+    except Exception as e:
+        print(f"⚠️ BM25 캐시 저장 실패: {e}")
+    
+    return bm25_retriever
 
-bm25_retriever = BM25Retriever.from_documents(docs_for_bm25)
-bm25_retriever.k = 8
+def load_bm25_index():
+    """캐시에서 BM25 인덱스 로드하거나 새로 구축"""
+    cache_file = CACHE_DIR / "bm25_index.pkl"
+    
+    # 캐시 만료 시간 (12시간)
+    cache_expiry = 60 * 60 * 12
+    
+    if cache_file.exists():
+        file_age = time.time() - cache_file.stat().st_mtime
+        if file_age < cache_expiry:
+            try:
+                print("🔄 캐시된 BM25 인덱스 로딩...")
+                with open(cache_file, 'rb') as f:
+                    bm25_retriever = pickle.load(f)
+                print("✅ BM25 인덱스 캐시 로드 완료")
+                return bm25_retriever
+            except Exception as e:
+                print(f"⚠️ BM25 캐시 로드 실패: {e}")
+    
+    # 캐시가 없거나 만료된 경우 새로 구축
+    return build_bm25_index()
+
+# BM25 로드
+bm25_retriever = load_bm25_index()
 
 # RRF → Ensemble
 rrf_retriever = EnsembleRetriever(
@@ -141,11 +183,44 @@ class MetadataAwareRetriever:
         scored_docs.sort(key=lambda x: x[1], reverse=True)
         return [doc for doc, score in scored_docs[:8]]  # 상위 8개만 반환
 
-# Cross-Encoder 재랭킹
-cross_encoder = HuggingFaceCrossEncoder(
-    model_name="cross-encoder/ms-marco-MiniLM-L6-v2",
-    model_kwargs={"device": "cpu"}     
-)
+# Cross-Encoder 재랭킹 with caching
+def load_cross_encoder():
+    """크로스 인코더 모델 로드 (캐시 활용)"""
+    cache_file = CACHE_DIR / "cross_encoder.pkl"
+    
+    # 캐시 만료 시간 (24시간)
+    cache_expiry = 60 * 60 * 24
+    
+    if cache_file.exists():
+        file_age = time.time() - cache_file.stat().st_mtime
+        if file_age < cache_expiry:
+            try:
+                print("🔄 캐시된 Cross-Encoder 로딩...")
+                with open(cache_file, 'rb') as f:
+                    cross_encoder = pickle.load(f)
+                print("✅ Cross-Encoder 캐시 로드 완료")
+                return cross_encoder
+            except Exception as e:
+                print(f"⚠️ Cross-Encoder 캐시 로드 실패: {e}")
+    
+    # 캐시가 없거나 만료된 경우 새로 로드
+    print("🔄 Cross-Encoder 모델 로딩...")
+    cross_encoder = HuggingFaceCrossEncoder(
+        model_name="cross-encoder/ms-marco-MiniLM-L6-v2",
+        model_kwargs={"device": "cpu"}     
+    )
+    
+    # 캐싱 저장
+    try:
+        with open(cache_file, 'wb') as f:
+            pickle.dump(cross_encoder, f)
+        print(f"✅ Cross-Encoder 캐시 저장: {cache_file}")
+    except Exception as e:
+        print(f"⚠️ Cross-Encoder 캐시 저장 실패: {e}")
+    
+    return cross_encoder
+
+cross_encoder = load_cross_encoder()
 compressor = CrossEncoderReranker(
     model=cross_encoder,
     top_n=6                             
@@ -155,6 +230,10 @@ base_retriever = ContextualCompressionRetriever(
     base_compressor=compressor,
 )
 internal_retriever = MetadataAwareRetriever(base_retriever)
+
+init_elapsed_time = time.time() - init_start_time
+print(f"🎉 시스템 초기화 완료! (소요시간: {init_elapsed_time:.2f}초)")
+print("💬 질문을 입력하세요...\n")
 
 # ───────────────────────────────────────────────
 # 3️⃣ 캐시 관련 함수
