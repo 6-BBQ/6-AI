@@ -16,16 +16,26 @@ __pycache__/
 .coverage
 htmlcov/
 
-# 데이터 디렉토리
-/data/raw/*
-/data/processed/*
+# 데이터 디렉토리 (원본 데이터는 제외, 처리된 파일만 포함)
+/data/raw/*.json
+/data/raw/*.jsonl
+/data/processed_docs.jsonl
+/data/visited_urls.json
 
-# 벡터 DB
-/vector_db/*
+# 벡터 DB (용량이 크므로 제외)
+/vector_db/
+
+# 캐시 파일들
+/cache/
+*.pkl
 
 # 로그 파일
 *.log
 logs/
+preprocess_*.log
+rag_*.log
+pipeline_*.log
+crawler_*.log
 
 # 시스템 파일
 .DS_Store
@@ -37,3 +47,12 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# 임시 파일
+*.tmp
+*.temp
+
+# ChromaDB 관련
+chroma.sqlite3
+chroma.sqlite3-shm
+chroma.sqlite3-wal

@@ -1,79 +1,177 @@
+from __future__ import annotations
+
 import json
+import logging
 import re
 from pathlib import Path
-from bs4 import BeautifulSoup
-from textwrap import wrap
+from typing import Any, Dict, List
 
-# ─────────────────────────────────────────────────────
-RAW_DATA_DIR = Path("data/raw")
-PROCESSED_DIR = Path("data/processed")
-PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+from kiwipiepy import Kiwi
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-BLACKLIST = ["선계", "커스텀", "미스트 기어", "아칸", "출혈"]
-PRIORITY_TERMS = ["스펙업", "파밍", "명성", "레기온", "레이드", "뉴비", "가이드"]
+# ─────────────────────────────────────────────────────────────
+# 1️⃣ 설정
+RAW_DIR = Path("data/raw")            # 크롤링 결과 폴더
+SAVE_PATH = Path("data/processed_docs.jsonl")
+CHUNK_SIZE = 300          # tokens (≈ 한글 ≈ 문자 150-200)
+CHUNK_OVERLAP = 50
 
-CHUNK_SIZE = 500
-OUTPUT_FILE = PROCESSED_DIR / "processed_docs.json"
-# ─────────────────────────────────────────────────────
+# 약어 → 정식 용어 매핑
+DNF_TERMS = {
+}
+DNF_CLASSES = {
+    # … 필요한 만큼 추가
+}
 
-def is_valid_doc(text: str) -> bool:
-    if any(bad in text for bad in BLACKLIST):
-        return False
-    return any(term in text for term in PRIORITY_TERMS)
+# 로깅
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler()],
+)
+log = logging.getLogger("preprocess")
+
+# ─────────────────────────────────────────────────────────────
+# 2️⃣ 헬퍼
+kiwi = Kiwi()
+
+RE_HTML_TAG = re.compile(r"<[^>]*>")        # very naive stripper
 
 
-def clean_text(text: str) -> str:
-    """HTML 태그 및 불필요한 구문 제거"""
-    text = BeautifulSoup(text, "html.parser").get_text()
-    lines = text.split("\n")
-    cleaned = []
-    for line in lines:
-        line = line.strip()
-        if len(line) < 10:
+def clean_html(text: str) -> str:
+    """태그 제거 + 라인 정리"""
+    text = RE_HTML_TAG.sub("", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def normalize_abbr(text: str) -> str:
+    """DNF 약어/직업명 통일"""
+    for k, v in {**DNF_TERMS, **DNF_CLASSES}.items():
+        text = re.sub(rf"\b{re.escape(k)}\b", v, text, flags=re.IGNORECASE)
+    return text
+
+
+def sent_tokenize(text: str) -> List[str]:
+    """Korean sentence splitter (Kiwi)"""
+    spans = kiwi.split_into_sents(text)
+    return [s.text for s in spans]
+
+
+def load_raw_files() -> List[Dict[str, Any]]:
+    docs: List[Dict[str, Any]] = []
+    for path in RAW_DIR.rglob("*"):
+        if not path.is_file():
             continue
-        if re.match(r"^(제목|작성자|※|▶|바로가기)", line):
-            continue
-        cleaned.append(line)
-    return "\n".join(cleaned)
+        if path.suffix.lower() in {".json", ".jsonl"}:
+            with path.open(encoding="utf-8") as f:
+                try:
+                    data = json.load(f)
+                    docs.extend(data if isinstance(data, list) else [data])
+                except json.JSONDecodeError:
+                    log.warning("JSON decode failed: %s", path)
+        else:
+            # html / txt
+            with path.open(encoding="utf-8") as f:
+                docs.append(
+                    {"title": path.stem, "body": f.read(), "source": str(path)}
+                )
+    return docs
 
 
-def chunk_document(item: dict, max_chunk_size: int = CHUNK_SIZE):
-    """하나의 게시글 JSON 항목을 여러 문서로 분할"""
-    text = clean_text(item["content"])
-    chunks = wrap(text, max_chunk_size, break_long_words=False, replace_whitespace=False)
+def extract_metadata(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """문서에서 메타데이터 추출"""
+    metadata = {}
+    
+    # 기본 필드들
+    if "url" in doc:
+        metadata["url"] = doc["url"]
+    if "source" in doc:
+        metadata["source"] = doc["source"]
+    if "date" in doc:
+        metadata["date"] = doc["date"]
+    if "timestamp" in doc:
+        metadata["timestamp"] = doc["timestamp"]
+    
+    # 수치 정보
+    if "views" in doc:
+        metadata["views"] = doc["views"]
+    if "likes" in doc:
+        metadata["likes"] = doc["likes"]
+    if "priority_score" in doc:
+        metadata["priority_score"] = doc["priority_score"]
+    if "content_score" in doc:
+        metadata["content_score"] = doc["content_score"]
+    
+    # 카테고리/클래스 정보
+    if "class_name" in doc:
+        metadata["class_name"] = doc["class_name"]
+    
+    return metadata
 
-    return [
-        {
-            "text": chunk,
-            "metadata": {
-                "title": item.get("title", ""),
-                "url": item.get("url", ""),
-                "date": item.get("date", "")
+
+# ─────────────────────────────────────────────────────────────
+# 3️⃣ 메인 파이프라인
+def main() -> None:
+    log.info("🔍 raw 문서 로드 중…")
+    raw_docs = load_raw_files()
+    log.info("✅ %d개 로드 완료", len(raw_docs))
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+        separators=["\n\n", "\n", ".", "!", "?", " ", ""],
+    )
+
+    out_f = SAVE_PATH.open("w", encoding="utf-8")
+
+    processed = 0
+    for idx, doc in enumerate(raw_docs):
+        # 제목과 본문 추출
+        title = doc.get("title", "").strip()
+        # 'body' 키를 우선 확인하고, 없으면 'content' 확인
+        content = doc.get("body", "") or doc.get("content", "")
+        content = clean_html(content)
+        
+        # title과 content가 동일하거나 content가 비어있으면 content만 사용
+        if not content or content.strip() == title:
+            merged = title
+        else:
+            merged = f"{title}\n{content}" if title else content
+        merged = normalize_abbr(merged)
+
+        # 긴 문서는 sentence 단위로 split 후 chunk
+        sentences = sent_tokenize(merged)
+        merged_clean = "\n".join(sentences)
+
+        chunks = splitter.split_text(merged_clean)
+        
+        # 메타데이터 추출
+        metadata = extract_metadata(doc)
+        metadata.update({
+            "title": title,
+            "id_raw": idx,
+        })
+
+        for n, chunk in enumerate(chunks):
+            rec = {
+                "id": f"{idx}_{n}",
+                "content": chunk,
+                "metadata": metadata.copy(),  # 각 청크마다 복사본 생성
             }
-        }
-        for chunk in chunks
-    ]
+            out_f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            processed += 1
+
+    out_f.close()
+    log.info("🚀 %d개 청크 저장 → %s", processed, SAVE_PATH)
+    
+    # 처리 통계 출력
+    log.info("📊 처리 통계:")
+    log.info(f"   - 원본 문서: {len(raw_docs)}개")
+    log.info(f"   - 생성된 청크: {processed}개")
+    log.info(f"   - 평균 청크/문서: {processed/len(raw_docs):.1f}")
 
 
-def process_all_json_files():
-    """data/raw 내의 모든 JSON 파일 전처리"""
-    documents = []
-    for json_file in RAW_DATA_DIR.glob("*.json"):
-        with open(json_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            for item in data:
-                raw_text = item["content"]
-                # 블랙리스트·우선 키워드 검사
-                if not is_valid_doc(raw_text):
-                    continue
-                documents.extend(chunk_document(item))
-
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        json.dump(documents, f, ensure_ascii=False, indent=2)
-
-    print(f"✅ 전처리 완료: {len(documents)}개 문서 저장됨 → {OUTPUT_FILE}")
-
-
-# ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    process_all_json_files()
+    main()

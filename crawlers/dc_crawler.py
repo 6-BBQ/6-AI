@@ -1,20 +1,44 @@
+# dc_crawler.py (개선 버전)
 import json
 import time
 import requests
+import logging
+from datetime import datetime
+from pathlib import Path
 from bs4 import BeautifulSoup
+from utils import (
+    build_item, clean_text, calculate_content_score,
+    should_process_url, filter_by_keywords
+)
+
+# 로깅 설정
+logger = logging.getLogger("crawler.dcinside")
 
 # ──────────────────────────────────────────────
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 BASE_URL = "https://gall.dcinside.com"
-SAVE_PATH = "data/raw/dc_row.json"
-# 필터 키워드 추가
-FILTER_KEYWORDS = ["명성", "던전", "스펙업", "장비", "파밍", "뉴비", "유입", "초보자", "융합석", "중천", "세트", "나벨", "베누스",
-                   "가이드", "공략", "에픽", "태초", "소울", "레기온", "레이드", "현질", "세리아", "준종결", "종결"]
-EXCLUDE_KEYWORDS = ["이벤트", "선계", "커스텀", "카지노", "기록실", "서고", "바칼", "ㅅㅂ", "ㅂㅅ", "ㅄ", "ㅗ", "시발", "씨발", "병신", "좆"]
+SAVE_PATH = "data/raw/dc_raw.json"
+
+# 필터 키워드 (중요도에 따라 정렬)
+FILTER_KEYWORDS = [
+    "명성", "상급 던전", "스펙업", "장비", "파밍", "뉴비", "융합석", "중천", "세트",
+    "가이드", "에픽", "태초", "레기온", "레이드", "현질", "세리아", "마법부여", 
+    "스킬트리", "종말의 숭배자"
+]
+
+# 제외 키워드
+EXCLUDE_KEYWORDS = [
+    "이벤트", "선계", "커스텀", "카지노", "기록실", "서고", "바칼", "이스핀즈", 
+    "어둑섬", "깨어난 숲", "ㅅㅂ", "ㅂㅅ", "ㅄ", "ㅗ", "시발", "씨발", "병신", "좆"
+]
+
+# 품질 점수 임계값 (이 점수 이상인 게시글만 저장)
+QUALITY_THRESHOLD = 35  # 디시는 글이 짧은 경향이 있어 낮게 설정
 # ──────────────────────────────────────────────
 
-# 날짜 확인 함수 추가
+# 날짜 확인 함수
 def is_valid_date(date_text):
+    """날짜가 유효한지 확인 (2025년 이후만 유효)"""
     # "[날짜 없음]"인 경우 유효하지 않음
     if date_text == "[날짜 없음]":
         return False
@@ -24,62 +48,108 @@ def is_valid_date(date_text):
 
 # 📌 1. 게시글 리스트 추출 (한 페이지)
 def get_post_list(page_num, session):
+    """디시인사이드에서 게시글 목록 가져오기"""
     url = f"{BASE_URL}/mgallery/board/lists/?id=dfip&sort_type=N&exception_mode=recommend&search_head=10&page={page_num}"
-    resp = session.get(url)
-    soup = BeautifulSoup(resp.text, "html.parser")
-    posts = soup.select("tr.ub-content.us-post")
-    return posts
+    try:
+        resp = session.get(url, timeout=10)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+        posts = soup.select("tr.ub-content.us-post")
+        logger.info(f"페이지 {page_num}: {len(posts)}개 게시글 발견")
+        return posts
+    except requests.exceptions.RequestException as e:
+        logger.error(f"게시글 목록 가져오기 오류 (페이지 {page_num}): {e}")
+        return []
 
 # 📌 2. 게시글 URL 및 제목 추출
 def parse_post_info(post):
+    """게시글에서 URL과 제목 추출"""
     link_tag = post.select_one("td.gall_tit a[href*='view']")
     if not link_tag:
         return None, None
     
     post_url = BASE_URL + link_tag["href"]
-    
-    # 제목 태그에서 텍스트 추출
     title_text = link_tag.get_text(strip=True)
     
     return post_url, title_text
 
 # 📌 3. 게시글 본문 크롤링 (본문 내 URL도 재귀 크롤링)
 def crawl_post_content(post_url, session, visited_urls, depth=0, max_depth=2):
-    if post_url in visited_urls:
+    """게시글 내용 크롤링 및 재귀적으로 링크 탐색"""
+    # 증분 크롤링: 이미 방문한 URL이면 건너뜀
+    if not should_process_url(post_url, visited_urls):
+        logger.debug(f"이미 방문한 URL: {post_url}")
         return []
 
+    # 방문 기록에 추가
     visited_urls.add(post_url)
     results = []
     
     try:
-        resp_post = session.get(post_url)
+        # 게시글 내용 가져오기
+        resp_post = session.get(post_url, timeout=10)
+        resp_post.raise_for_status()
         soup = BeautifulSoup(resp_post.text, "html.parser")
 
+        # 제목 추출
         title_tag = soup.select_one(".title_subject")
         title_text = title_tag.get_text(strip=True) if title_tag else "[제목 없음]"
 
+        # 날짜 추출
         date_tag = soup.select_one("span.gall_date")
         if date_tag:
             raw = date_tag.get_text(strip=True)
-            date_text = raw[:10].replace('.', '-')
+            date_text = raw[:10].replace(".", "-")
         else:
             date_text = "[날짜 없음]"
 
         # 2025년 게시글만 허용
         if not is_valid_date(date_text):
+            logger.debug(f"2025년 이전 글 건너뜀: {post_url} ({date_text})")
             return []
+        
+        # 조회수 추출
+        hit_count = 0
+        hit_tag = soup.select_one("span.gall_count")
+        if hit_tag:
+            try:
+                hit_text = hit_tag.get_text(strip=True).replace('조회', '').strip()
+                hit_count = int(hit_text.replace(',', ''))
+            except ValueError:
+                hit_count = 0
+        
+        # 좋아요 수 추출
+        like_count = 0
+        like_tag = soup.select_one("span.gall_reply_num")
+        if like_tag:
+            try:
+                like_text = like_tag.get_text(strip=True).replace('추천', '').strip()
+                like_count = int(like_text.replace(',', ''))
+            except ValueError:
+                like_count = 0
 
+        # 본문 추출
         content_div = soup.select_one("div.write_div")
         content_text = content_div.get_text("\n", strip=True) if content_div else "[본문 없음]"
-
-        post_data = {
-            "url": post_url,
-            "title": title_text,
-            "date": date_text,
-            "content": content_text
-        }
-
-        results.append(post_data)
+        
+        # 콘텐츠 품질 점수 계산
+        content_score = calculate_content_score(content_text, title_text)
+        
+        # 품질 임계값 이상의 게시글만 저장
+        if content_score >= QUALITY_THRESHOLD:
+            item = build_item(
+                source="dcinside",
+                url=post_url,
+                title=title_text,
+                body=content_text,
+                date=date_text,
+                views=hit_count,
+                likes=like_count
+            )
+            results.append(item)
+            logger.info(f"게시글 수집 (점수: {content_score:.1f}): {title_text[:30]}")
+        else:
+            logger.debug(f"저품질 게시글 제외 (점수: {content_score:.1f}): {title_text[:30]}")
 
         # 🔁 본문 내 추가 게시글 링크 (depth 제한 포함)
         if content_div and depth < max_depth:
@@ -89,65 +159,113 @@ def crawl_post_content(post_url, session, visited_urls, depth=0, max_depth=2):
                     # 링크 텍스트(제목) 추출
                     link_text = a.get_text(strip=True)
                     
-                    # 링크 제목 필터링 - 제외 키워드가 포함된 링크는 건너뛰기
-                    if any(bad_word in link_text for bad_word in EXCLUDE_KEYWORDS):
-                        continue
-                    
-                    # 포함 키워드가 하나라도 있는지 확인 - 없으면 건너뛰기
-                    if not any(keyword in link_text for keyword in FILTER_KEYWORDS):
+                    # 키워드 필터링
+                    if not filter_by_keywords(link_text, FILTER_KEYWORDS, EXCLUDE_KEYWORDS):
                         continue
                     
                     full_link = BASE_URL + linked_href
                     results.extend(crawl_post_content(full_link, session, visited_urls, depth + 1, max_depth))
 
-        time.sleep(0.01)
+        # 요청 간 딜레이
+        time.sleep(0.05)
 
+    except requests.exceptions.RequestException as e:
+        logger.error(f"게시글 가져오기 오류 ({post_url}): {e}")
     except Exception as e:
-        print(f"❌ 에러 발생: {e}")
+        logger.error(f"게시글 처리 오류 ({post_url}): {e}")
 
     return results
 
 # 📌 4. 전체 크롤링 실행
-def crawl_dcinside(max_pages=2, max_depth=2):
+def crawl_dcinside(max_pages=2, max_depth=2, visited_urls=None):
+    """디시인사이드 전체 크롤링 실행"""
+    # 증분 크롤링을 위한 방문 URL 관리
+    if visited_urls is None:
+        visited_urls = set()
+        logger.info("새로운 크롤링 세션 시작 (디시인사이드)")
+    else:
+        logger.info(f"증분 크롤링 시작 (기존 URL {len(visited_urls)}개)")
+    
+    # 결과 및 세션 초기화
     session = requests.Session()
     session.headers.update(HEADERS)
-
-    visited_urls = set()
+    session.headers.update({"Referer": "https://gall.dcinside.com/mgallery/board/lists/?id=dfip"})
+    
     results = []
     notice_processed = False
+    start_time = time.time()
 
-    for page in range(1, max_pages + 1):
-        print(f"\n📄 페이지 {page} 크롤링 중...")
-        posts = get_post_list(page, session)
+    try:
+        # 페이지별 크롤링
+        for page in range(1, max_pages + 1):
+            logger.info(f"\n페이지 {page} 크롤링 중...")
+            posts = get_post_list(page, session)
 
-        for post in posts:
-            post_url, title_text = parse_post_info(post)
-            if not post_url or not title_text:
-                continue
-            
-            # 게시글 리스트에서 제목 필터링
-            if not any(keyword in title_text for keyword in FILTER_KEYWORDS):
-                continue
-                
-            if any(bad_word in title_text for bad_word in EXCLUDE_KEYWORDS):
-                continue
+            # 게시글별 처리
+            for post in posts:
+                post_url, title_text = parse_post_info(post)
+                if not post_url or not title_text:
+                    continue
+                    
+                # 키워드 기반 필터링
+                if not filter_by_keywords(title_text, FILTER_KEYWORDS, EXCLUDE_KEYWORDS):
+                    logger.debug(f"제목 필터링: {title_text}")
+                    continue
 
-            subject_tag = post.select_one("td.gall_subject")
-            is_notice = subject_tag and "공지" in subject_tag.get_text()
+                # 공지글 확인
+                subject_tag = post.select_one("td.gall_subject")
+                is_notice = subject_tag and "공지" in subject_tag.get_text()
 
-            if is_notice:
-                if not notice_processed:
-                    print(f"📌 공지글 수집: {post_url}")
+                # 공지글은 한 번만 처리
+                if is_notice:
+                    if not notice_processed:
+                        logger.info(f"공지글 수집: {post_url}")
+                        results.extend(crawl_post_content(post_url, session, visited_urls, depth=0, max_depth=max_depth))
+                    continue
+                else:
+                    # 일반 게시글 처리
                     results.extend(crawl_post_content(post_url, session, visited_urls, depth=0, max_depth=max_depth))
-                continue
-            else:
-                results.extend(crawl_post_content(post_url, session, visited_urls, depth=0, max_depth=max_depth))
+            
+            # 공지글 처리 상태 업데이트
+            if not notice_processed:
+                notice_processed = True
+
+        # 결과 요약
+        elapsed_time = time.time() - start_time
+        avg_time_per_post = elapsed_time / len(results) if results else 0
+        logger.info(f"\n크롤링 완료: 총 {len(results)}개 (소요 시간: {elapsed_time:.1f}초, 게시글당 {avg_time_per_post:.2f}초)")
+
+        # 품질 정보
+        if results:
+            content_scores = [item.get("content_score", 0) for item in results]
+            avg_score = sum(content_scores) / len(content_scores)
+            logger.info(f"평균 품질 점수: {avg_score:.1f} (최소: {min(content_scores):.1f}, 최대: {max(content_scores):.1f})")
+
+        # 결과 저장
+        save_dir = Path(SAVE_PATH).parent
+        save_dir.mkdir(parents=True, exist_ok=True)
         
-        if not notice_processed:
-            notice_processed = True
+        with open(SAVE_PATH, "w", encoding="utf-8") as f:
+            json.dump(results, f, ensure_ascii=False, indent=2)
+        
+        logger.info(f"결과 저장 완료: {SAVE_PATH}")
+        
+    except Exception as e:
+        logger.error(f"크롤링 중 오류 발생: {e}")
+    
+    return results
 
-    # 📂 결과 저장
-    with open(SAVE_PATH, "w", encoding="utf-8") as f:
-        json.dump(results, f, ensure_ascii=False, indent=2)
-
-    print(f"\n✅ 총 {len(results)}개의 게시글 저장 완료: {SAVE_PATH}")
+# 스크립트 직접 실행 시
+if __name__ == "__main__":
+    # 로깅 설정
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(f"dc_crawler_{datetime.now():%Y%m%d}.log")
+        ]
+    )
+    
+    # 테스트 실행
+    crawl_dcinside(max_pages=2, max_depth=2)
