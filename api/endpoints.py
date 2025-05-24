@@ -11,26 +11,10 @@ from .models import (
     HealthResponse, SourceDocument
 )
 from .auth import verify_jwt_token
-from rag import get_rag_answer, get_rag_service
+from rag import get_structured_rag_answer, get_structured_rag_service
 
 # 라우터 생성
 router = APIRouter()
-
-@router.get("/health", response_model=HealthResponse)
-async def health_check():
-
-    try:
-        test_result = get_rag_answer("테스트")
-        rag_ready = bool(test_result and test_result.get('result'))
-    except Exception:
-        rag_ready = False
-    
-    return HealthResponse(
-        status="healthy",
-        version="1.0.0",
-        timestamp=datetime.now().isoformat(),
-        rag_system_ready=rag_ready
-    )
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest): # ChatRequest 모델 사용
@@ -113,7 +97,7 @@ async def chat_endpoint(request: ChatRequest): # ChatRequest 모델 사용
 
         # 2) RAG 호출 시, 변환된 character_info 전달
         print(f"[INFO] RAG 질문 처리: {request.query}")
-        rag_result = get_rag_answer(
+        rag_result = get_structured_rag_answer(
             request.query,
             character_info=transformed_char_info # 변환된 딕셔너리 전달
         )
