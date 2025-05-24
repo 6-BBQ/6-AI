@@ -4,8 +4,8 @@ from test_jwt import create_test_jwt_token # 이 함수가 있다고 가정
 # 서버 주소
 API_URL = "http://localhost:8000/api/df/chat" # main.py의 prefix와 endpoints.py 라우터 경로
 
-# 테스트용 JWT 토큰
-jwt_token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0IiwiYXV0aCI6IlVTRVIiLCJleHAiOjE3NDc5Mzc5MjR9.qMN9sGnxst0Z6bWPWBhY9NGADCOucriWAdmutbuLLjM"
+# 테스트용 JWT 토큰 (새로운 예시 데이터에서 가져온 것)
+jwt_token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJya2R4b3FscyIsImF1dGgiOiJVU0VSIiwiZXhwIjoxNzQ4MDY5NDI0fQ.I0y7zVMUwRPMdr0oMwIGXI6lXmviabRVmi6zPiRXOsE"
 
 # 테스트용 캐릭터 정보 (파이썬 딕셔너리)
 character_info = {
@@ -30,13 +30,26 @@ character_info = {
 }
 
 # 테스트용 쿼리
-query = "가장 최근 이벤트에는 뭐가 있어?."
+query = "테스트 코드임 3"
 
-# 요청 데이터 구성 (character_data로 변경)
+# 이전 대화 기록 (테스트용)
+before_question_list = [
+    "테스트 코드임",
+    "테스트 코드임 2"
+]
+
+before_response_list = [
+    "AI한테 받은 응답 대신 적는 String 데이터",
+    "AI한테 받은 응답 대신 적는 String 데이터"
+]
+
+# 새로운 API 요청 데이터 구성
 payload = {
     "query": query,
-    "jwt_token": jwt_token,
-    "character_data": character_info
+    "jwtToken": jwt_token,
+    "characterData": character_info,
+    "beforeQuestionList": before_question_list,
+    "beforeResponseList": before_response_list
 }
 
 # POST 요청 보내기
@@ -44,6 +57,7 @@ print("🚀 API 테스트 시작...")
 print(f"📡 요청 URL: {API_URL}")
 print(f"❓ 질문: {query}")
 print(f"👤 캐릭터: {character_info.get('jobGrowName', 'N/A')} ({character_info.get('fame', 'N/A')}명성)")
+print(f"📜 이전 대화: {len(before_question_list)}개 질문/응답")
 print()
 
 # requests.post가 payload를 올바른 JSON으로 변환하여 전송합니다.
