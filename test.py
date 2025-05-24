@@ -5,7 +5,7 @@ from test_jwt import create_test_jwt_token # 이 함수가 있다고 가정
 API_URL = "http://localhost:8000/api/df/chat" # main.py의 prefix와 endpoints.py 라우터 경로
 
 # 테스트용 JWT 토큰
-jwt_token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0IiwiYXV0aCI6IlVTRVIiLCJleHAiOjE3NDc5MzM3OTh9.qZWWEAuKsZ9bzbVyvb5aVtW1DM6qyV9whyDfUjL_JT0"
+jwt_token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0IiwiYXV0aCI6IlVTRVIiLCJleHAiOjE3NDc5Mzc5MjR9.qMN9sGnxst0Z6bWPWBhY9NGADCOucriWAdmutbuLLjM"
 
 # 테스트용 캐릭터 정보 (파이썬 딕셔너리)
 character_info = {
@@ -30,7 +30,7 @@ character_info = {
 }
 
 # 테스트용 쿼리
-query = "현재 추천되는 장비 세팅과 세트에 대해서 알려줘"
+query = "가장 최근 이벤트에는 뭐가 있어?."
 
 # 요청 데이터 구성 (character_data로 변경)
 payload = {

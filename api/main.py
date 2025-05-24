@@ -17,8 +17,8 @@ async def lifespan(app: FastAPI):
     print("📚 RAG 시스템 워밍업...")
 
     try:
-        from rag import get_rag_service
-        get_rag_service()  # 싱글톤 인스턴스 생성
+        from rag import get_structured_rag_service
+        get_structured_rag_service()  # 싱글톤 인스턴스 생성
         print("✅ RAG 시스템 준비 완료")
     except Exception as e:
         print(f"❌ RAG 시스템 초기화 실패: {e}")
