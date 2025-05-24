@@ -21,7 +21,7 @@ async def chat_endpoint(request: ChatRequest): # ChatRequest 모델 사용
     
     # 1. JWT 토큰 검증
     try:
-        verify_jwt_token(request.jwt_token)
+        verify_jwt_token(request.jwtToken)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -87,15 +87,29 @@ async def chat_endpoint(request: ChatRequest): # ChatRequest 모델 사용
 
     try:
         # 1) 캐릭터 정보 변환
-        # request.character_data가 ChatRequest 모델에 정의되어 있다고 가정
-        transformed_char_info = transform_character_data(request.character_data)
+        # request.characterData가 ChatRequest 모델에 정의되어 있다고 가정
+        transformed_char_info = transform_character_data(request.characterData)
         
         if transformed_char_info:
             print(f"[INFO] 변환된 캐릭터 정보: {transformed_char_info}")
         else:
             print("[INFO] 캐릭터 정보 없음 또는 변환 실패")
 
-        # 2) RAG 호출 시, 변환된 character_info 전달
+        # 2) 이전 대화 기록 처리
+        conversation_history = []
+        if request.beforeQuestionList and request.beforeResponseList:
+            # 두 리스트의 길이가 다를 수 있으므로 최소 길이로 맞춤
+            min_length = min(len(request.beforeQuestionList), len(request.beforeResponseList))
+            for i in range(min_length):
+                conversation_history.extend([
+                    {"role": "user", "content": request.beforeQuestionList[i]},
+                    {"role": "assistant", "content": request.beforeResponseList[i]}
+                ])
+            print(f"[INFO] 이전 대화 기록: {len(conversation_history)//2}개 대화")
+        else:
+            print("[INFO] 이전 대화 기록 없음")
+
+        # 3) RAG 호출 시, 변환된 character_info 전달
         print(f"[INFO] RAG 질문 처리: {request.query}")
         rag_result = get_structured_rag_answer(
             request.query,

@@ -22,10 +22,17 @@ class ExecutionTimes(BaseModel):
 # ────────────── 요청·응답 모델 ──────────────
 class ChatRequest(BaseModel):
     query: str = Field(..., description="사용자 질문")
-    jwt_token: str = Field(..., description="JWT 인증 토큰")
-    # character_data는 어떤 필드가 와도 수용
-    character_data: Optional[Dict[str, Any]] = Field(
+    jwtToken: str = Field(..., description="JWT 인증 토큰")
+    # characterData는 어떤 필드가 와도 수용
+    characterData: Optional[Dict[str, Any]] = Field(
         None, description="스프링에서 내려주는 캐릭터 요약 정보(JSON)"
+    )
+    # 이전 질문/응답 기록 (리스트 구조)
+    beforeQuestionList: Optional[List[str]] = Field(
+        default_factory=list, description="이전 질문 목록"
+    )
+    beforeResponseList: Optional[List[str]] = Field(
+        default_factory=list, description="이전 응답 목록"
     )
 
 class ChatResponse(BaseModel):
