@@ -8,7 +8,7 @@ from langchain.docstore.document import Document
 class MetadataAwareRetriever:
     """메타데이터를 고려한 지능형 검색기"""
     
-    def __init__(self, base_retriever, top_n: int = 15):
+    def __init__(self, base_retriever, top_n: int = 25):
         """
         Args:
             base_retriever: 기본 검색기 (ContextualCompressionRetriever 등)
@@ -43,11 +43,11 @@ class MetadataAwareRetriever:
                     
                     # 직업 매칭 정확도에 따른 차등 점수
                     if class_lower == query_lower:  # 완전 일치
-                        score += 1.0
+                        score += 0.1
                     elif class_lower in query_lower or query_lower in class_lower:  # 부분 일치
-                        score += 0.7
+                        score += 0.1
                     elif any(part.strip().lower() in query_lower for part in class_name.split('(') if part.strip()):  # 기본 직업명 매칭
-                        score += 0.5
+                        score += 0.1
             
             scored_docs.append((doc, score))
         

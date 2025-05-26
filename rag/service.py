@@ -11,10 +11,8 @@ from dotenv import load_dotenv
 
 # LLM & 임베딩
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import OpenAIEmbeddings
 from langchain_chroma import Chroma
-
-# Gemini 임베딩 import
-from vectorstore.gemini_embeddings import GeminiEmbeddings
 
 # 검색 관련
 from langchain.retrievers import EnsembleRetriever, ContextualCompressionRetriever
@@ -40,7 +38,7 @@ class StructuredRAGService:
     # --- 상수 정의 (기존과 동일하게 유지) ---
     CACHE_DIR_NAME = "cache"
     VECTOR_DB_DIR = "vector_db/chroma"
-    EMBED_MODEL_NAME = "text-embedding-004"
+    EMBED_MODEL_NAME = "text-embedding-3-large"
     BM25_CACHE_FILE = "bm25_retriever.pkl"
     CROSS_ENCODER_CACHE_FILE = "cross_encoder.pkl"
     LLM_MODEL_NAME = "models/gemini-2.5-flash-preview-05-20"
@@ -62,11 +60,13 @@ class StructuredRAGService:
         self.cache_dir = Path(self.CACHE_DIR_NAME)
         self.cache_dir.mkdir(exist_ok=True)
         
+        # API 키 설정
         self.gemini_api_key = os.getenv("GEMINI_API_KEY")
+        
         if not self.gemini_api_key:
             raise RuntimeError("GEMINI_API_KEY 환경변수가 필요합니다!")
         
-        print("✅ Gemini API 키 확인 완료 - LLM 및 임베딩 모두 Gemini 사용")
+        print("✅ API 키 확인 완료 - Gemini LLM + 임베딩 사용")
 
     def _initialize_utilities(self):
         """유틸리티 클래스들 초기화"""
@@ -87,13 +87,13 @@ class StructuredRAGService:
         self.gemini_client = genai.Client(api_key=self.gemini_api_key)
         self.web_searcher = WebSearcher(self.gemini_client)
         
-        # Gemini 임베딩 함수 초기화
-        self.embed_fn = GeminiEmbeddings(
+        # 임베딩 함수 변경 (한국어 성능 향상)
+        print("✅ 임베딩 사용 - 한국어 성능 최적화")
+        self.embed_fn = OpenAIEmbeddings(
             model=self.EMBED_MODEL_NAME,
-            api_key=self.gemini_api_key,
-            task_type="RETRIEVAL_QUERY",  # 쿼리 검색용 최적화
-            rate_limit_delay=0.05  # 배치 처리로 인해 대기시간 단축
+            openai_api_key=os.environ["OPENAI_API_KEY"]
         )
+        
         self.vectordb = Chroma(
             persist_directory=self.VECTOR_DB_DIR,
             embedding_function=self.embed_fn
@@ -106,10 +106,10 @@ class StructuredRAGService:
         print("🔄 검색기 초기화 중...")
         start_time = time.time()
         
-        # 벡터 검색기 설정
+        # 벡터 검색기 설정 (검색 개수 대폭 증가)
         self.vector_retriever = self.vectordb.as_retriever(
             search_type="mmr",
-            search_kwargs={"k": 15, "fetch_k": 30, "lambda_mult": 0.8},
+            search_kwargs={"k": 50, "fetch_k": 150, "lambda_mult": 0.7},
         )
         
         # BM25 검색기 생성 (캐시 사용)
@@ -121,9 +121,9 @@ class StructuredRAGService:
             weights=[0.5, 0.5],
         )
         
-        # CrossEncoder 재랭킹 추가
+        # CrossEncoder 재랭킹 추가 (최종 문서 수 증가)
         cross_encoder_model = self._get_cross_encoder_model()
-        compressor = CrossEncoderReranker(model=cross_encoder_model, top_n=15)
+        compressor = CrossEncoderReranker(model=cross_encoder_model, top_n=25)
         base_retriever = ContextualCompressionRetriever(
             base_retriever=self.rrf_retriever,
             base_compressor=compressor,
@@ -136,7 +136,7 @@ class StructuredRAGService:
         print(f"🎉 검색기 초기화 완료! (소요시간: {elapsed_time:.2f}초)")
 
     def _setup_llm_and_prompt(self):
-        """LLM 및 프롬프트 설정 (이전 대화 기록 추가)"""
+        """LLM 및 프롬프트 설정 (던파 전문가 버전)"""
         self.hybrid_prompt = PromptTemplate(
             input_variables=["internal_context", "web_context", "question", "character_info", "conversation_history"],
             template="""
@@ -158,8 +158,8 @@ class StructuredRAGService:
 [답변 규칙]
 - 제공된 정보 외의 지식은 절대 사용하지 마세요.
 - 정보가 부족하면 "제공된 정보에서 찾을 수 없습니다."라고 답변하세요.
-- 이전 대화 기록이 있다면 맥락을 고려해서 답변하세요.
 - 대답에는 내부 데이터를 최대한 사용하고, 외부 데이터로 검토를 받으세요.
+- 가능한 최신 데이터를 우선적으로 사용하세요.
 - 사용자의 질문 범위만 다루며, 관련 없는 설명은 생략하세요.
 - 순서를 나열하며 설명하고, 짧고 간결하게 핵심만 설명하세요.
 - 답변엔 간단한 출처를 함께 작성하세요.

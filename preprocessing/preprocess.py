@@ -11,10 +11,10 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 # ─────────────────────────────────────────────────────────────
 # 1️⃣ 설정
-RAW_DIR = Path("data/raw")            # 크롤링 결과 폴더
+MERGED_DIR = Path("data/merged")      # 통합된 크롤링 결과 폴더
 SAVE_PATH = Path("data/processed_docs.jsonl")
-CHUNK_SIZE = 300          # tokens (≈ 한글 ≈ 문자 150-200)
-CHUNK_OVERLAP = 50
+CHUNK_SIZE = 400
+CHUNK_OVERLAP = 100
 
 # 약어 → 정식 용어 매핑
 DNF_TERMS = {
@@ -60,7 +60,7 @@ def sent_tokenize(text: str) -> List[str]:
 
 def load_raw_files() -> List[Dict[str, Any]]:
     docs: List[Dict[str, Any]] = []
-    for path in RAW_DIR.rglob("*"):
+    for path in MERGED_DIR.rglob("*"):
         if not path.is_file():
             continue
         if path.suffix.lower() in {".json", ".jsonl"}:
@@ -98,10 +98,8 @@ def extract_metadata(doc: Dict[str, Any]) -> Dict[str, Any]:
         metadata["views"] = doc["views"]
     if "likes" in doc:
         metadata["likes"] = doc["likes"]
-    if "priority_score" in doc:
-        metadata["priority_score"] = doc["priority_score"]
-    if "content_score" in doc:
-        metadata["content_score"] = doc["content_score"]
+    if "quality_score" in doc:
+        metadata["quality_score"] = doc["quality_score"]
     
     # 카테고리/클래스 정보
     if "class_name" in doc:
