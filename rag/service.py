@@ -136,15 +136,18 @@ class StructuredRAGService:
         print(f"🎉 검색기 초기화 완료! (소요시간: {elapsed_time:.2f}초)")
 
     def _setup_llm_and_prompt(self):
-        """LLM 및 프롬프트 설정 (기존과 동일하게 유지)"""
+        """LLM 및 프롬프트 설정 (이전 대화 기록 추가)"""
         self.hybrid_prompt = PromptTemplate(
-            input_variables=["internal_context", "web_context", "question", "character_info"],
+            input_variables=["internal_context", "web_context", "question", "character_info", "conversation_history"],
             template="""
 당신은 던전앤파이터 전문 스펙업 가이드 챗봇입니다.  
 ※ 반드시 아래 제공된 정보만 활용해 답변하세요.
 
 [캐릭터 정보]
 {character_info}
+
+[이전 대화 기록]
+{conversation_history}
 
 [내부 데이터베이스]
 {internal_context}
@@ -155,6 +158,7 @@ class StructuredRAGService:
 [답변 규칙]
 - 제공된 정보 외의 지식은 절대 사용하지 마세요.
 - 정보가 부족하면 "제공된 정보에서 찾을 수 없습니다."라고 답변하세요.
+- 이전 대화 기록이 있다면 맥락을 고려해서 답변하세요.
 - 대답에는 내부 데이터를 최대한 사용하고, 외부 데이터로 검토를 받으세요.
 - 사용자의 질문 범위만 다루며, 관련 없는 설명은 생략하세요.
 - 순서를 나열하며 설명하고, 짧고 간결하게 핵심만 설명하세요.
@@ -194,6 +198,23 @@ class StructuredRAGService:
         return self.cache_manager.load_or_create_cached_item(
             self.CROSS_ENCODER_CACHE_FILE, creation_func, self.CACHE_EXPIRY_LONG, "CrossEncoder 모델"
         )
+    
+    def _build_conversation_context_for_llm(self, conversation_history: Optional[List[Dict]]) -> str:
+        """이전 대화 기록을 LLM용 컨텍스트 문자열로 변환"""
+        if not conversation_history or len(conversation_history) == 0:
+            return "이전 대화 기록이 없습니다."
+        
+        context_parts = []
+        for i, message in enumerate(conversation_history, 1):
+            role = message.get('role', 'unknown')
+            content = message.get('content', '')
+            
+            if role == 'user':
+                context_parts.append(f"사용자 질문 {i//2 + 1}: {content}")
+            elif role == 'assistant':
+                context_parts.append(f"이전 답변 {i//2 + 1}: {content}")
+        
+        return "\n".join(context_parts) if context_parts else "이전 대화 기록이 없습니다."
 
     def _hybrid_search(self, query: str, character_info: Optional[Dict]) -> Dict[str, Any]:
         """하이브리드 검색 (내부 + 웹)"""
@@ -272,7 +293,7 @@ class StructuredRAGService:
         self.cache_manager.save_search_result_to_cache(query, result, 'hybrid_search', character_info)
         return result
 
-    def get_answer(self, query: str, character_info: Optional[Dict] = None) -> Dict[str, Any]:
+    def get_answer(self, query: str, character_info: Optional[Dict] = None, conversation_history: Optional[List[Dict]] = None) -> Dict[str, Any]:
         """RAG 답변 생성 (메인 API)"""
         total_start_time = time.time()
         
@@ -285,9 +306,18 @@ class StructuredRAGService:
                 char_desc_parts.append(f"{fame_info}명성")
             if char_desc_parts:
                 print(f"[INFO] 캐릭터: {' '.join(char_desc_parts)}")
+        
+        # 이전 대화 기록 로그 출력
+        if conversation_history and len(conversation_history) > 0:
+            print(f"[INFO] 이전 대화 기록: {len(conversation_history)}개 메시지")
+        else:
+            print("[INFO] 이전 대화 기록 없음")
 
         # 캐릭터 정보를 LLM용 컨텍스트로 변환
         char_context_for_llm = self.text_processor.build_character_context_for_llm(character_info)
+        
+        # 이전 대화 기록을 LLM용 컨텍스트로 변환
+        conversation_context_for_llm = self._build_conversation_context_for_llm(conversation_history)
         
         # 하이브리드 검색 수행
         search_results = self._hybrid_search(query, character_info)
@@ -300,7 +330,8 @@ class StructuredRAGService:
             internal_context=search_results["internal_context_provided_to_llm"],
             web_context=search_results["web_context_provided_to_llm"],
             question=query,
-            character_info=char_context_for_llm
+            character_info=char_context_for_llm,
+            conversation_history=conversation_context_for_llm
         )
         
         try:
@@ -344,7 +375,7 @@ def get_structured_rag_service() -> StructuredRAGService:
         _structured_rag_service_instance = StructuredRAGService()
     return _structured_rag_service_instance
 
-def get_structured_rag_answer(query: str, character_info: Optional[Dict] = None) -> Dict[str, Any]:
+def get_structured_rag_answer(query: str, character_info: Optional[Dict] = None, conversation_history: Optional[List[Dict]] = None) -> Dict[str, Any]:
     """구조화된 RAG 답변 생성 함수"""
     service = get_structured_rag_service()
-    return service.get_answer(query, character_info)
+    return service.get_answer(query, character_info, conversation_history)

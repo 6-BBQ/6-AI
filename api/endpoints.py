@@ -109,11 +109,12 @@ async def chat_endpoint(request: ChatRequest): # ChatRequest 모델 사용
         else:
             print("[INFO] 이전 대화 기록 없음")
 
-        # 3) RAG 호출 시, 변환된 character_info 전달
+        # 3) RAG 호출 시, 변환된 character_info와 conversation_history 전달
         print(f"[INFO] RAG 질문 처리: {request.query}")
         rag_result = get_structured_rag_answer(
             request.query,
-            character_info=transformed_char_info # 변환된 딕셔너리 전달
+            character_info=transformed_char_info, # 변환된 딕셔너리 전달
+            conversation_history=conversation_history # 이전 대화 기록 전달
         )
         
         # 3. 출처 정보 변환
