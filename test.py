@@ -5,7 +5,7 @@ from test_jwt import create_test_jwt_token # 이 함수가 있다고 가정
 API_URL = "http://localhost:8000/api/df/chat" # main.py의 prefix와 endpoints.py 라우터 경로
 
 # 테스트용 JWT 토큰 (새로운 예시 데이터에서 가져온 것)
-jwt_token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0IiwiYXV0aCI6IlVTRVIiLCJleHAiOjE3NDgyMzYzMTZ9.J2RvEFlmSzRCeAsg6sftt-r58yadiCjJkYaMT5gPq_A"
+jwt_token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0IiwiYXV0aCI6IlVTRVIiLCJleHAiOjE3NDgyNDAzMTR9.8LY1eJOhOxVDeFFSm9jxx5KV-AXTFE5Tqhrk6flpxag"
 
 # 테스트용 캐릭터 정보 (파이썬 딕셔너리)
 character_info = {
@@ -30,17 +30,17 @@ character_info = {
 }
 
 # 테스트용 쿼리 (직업 매칭 테스트용)
-query = "내 직업에 대한 공략을 자세히 적어줘.?"
+query = "이전에 종결 마부를 물어봤는데, 자세한 이름과 성능을 적어줄 수 있어?"
 
 # 이전 대화 기록 (테스트용)
 before_question_list = [
-    "테스트 코드임",
-    "테스트 코드임 2"
+    "내 스펙에서 종결 마부가 뭐야?",
+    "내 직업에서 종결 무기가 뭐야?"
 ]
 
 before_response_list = [
-    "AI한테 받은 응답 대신 적는 String 데이터",
-    "AI한테 받은 응답 대신 적는 String 데이터"
+    "나벨 레이드에서 새로 나온 마법부여 카드가 종결입니다다",
+    "레인저에게는 노블레스 오브 레인저나 리턴드 스나이퍼 오브 블랙로즈가 종결로 뽑힙니다."
 ]
 
 # 새로운 API 요청 데이터 구성
