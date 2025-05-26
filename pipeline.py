@@ -19,7 +19,7 @@ if __name__ == "__main__":
 
     # 1️⃣ 크롤링
     run_script("crawlers/crawler.py", [
-        "--pages", "20",
+        "--pages", "30",
         "--depth", "2",
         "--yt-max", "30",
         "--merge",

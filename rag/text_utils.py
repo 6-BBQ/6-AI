@@ -15,9 +15,9 @@ class TextProcessor:
             return query
         
         enhancements = []
-        # FastAPI에서 변환된 'class' 키 사용
-        if class_info := character_info.get('class'):
-            enhancements.append(class_info)
+        # FastAPI에서 변환된 'job' 키 사용
+        if job_info := character_info.get('job'):
+            enhancements.append(job_info)
         if fame := character_info.get('fame'):
             enhancements.append(str(fame))
         
@@ -77,8 +77,8 @@ class TextProcessor:
             return "캐릭터 정보 없음."
         
         details = []
-        if class_info := character_info.get('class'):
-            details.append(f"- 직업: {class_info}")
+        if job_info := character_info.get('job'):
+            details.append(f"- 직업: {job_info}")
         if fame_info := character_info.get('fame'):
             details.append(f"- 명성: {fame_info}")
         if weapon_info := character_info.get('weapon'):
@@ -111,8 +111,8 @@ class TextProcessor:
             return "캐릭터 정보가 제공되지 않았습니다."
         
         details = []
-        if class_info := character_info.get('class'):
-            details.append(f"- 직업: {class_info}")
+        if job_info := character_info.get('job'):
+            details.append(f"- 직업: {job_info}")
         if fame_info := character_info.get('fame'):
             details.append(f"- 명성: {fame_info}")
         

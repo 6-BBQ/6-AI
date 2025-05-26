@@ -56,10 +56,14 @@ class MetadataAwareRetriever:
             except ValueError: 
                 pass
             
-            # 직업명 일치 보너스
+            # 직업명 일치 보너스 (JSON 데이터에서는 class_name으로 저장됨)
             if class_name := meta.get("class_name"):
-                if isinstance(class_name, str) and class_name.lower() in query.lower():
-                    score += 0.3
+                # query에서 job 정보를 추출하여 비교 (예: '레인저(여)' 또는 '레인저' 등)
+                if isinstance(class_name, str):
+                    # 정확한 직업명 매칭 또는 부분 매칭 확인
+                    if (class_name.lower() in query.lower()) or \
+                       any(part.strip() in query.lower() for part in class_name.split('(') if part.strip()):
+                        score += 0.3
             
             scored_docs.append((doc, score))
         

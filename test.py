@@ -5,7 +5,7 @@ from test_jwt import create_test_jwt_token # 이 함수가 있다고 가정
 API_URL = "http://localhost:8000/api/df/chat" # main.py의 prefix와 endpoints.py 라우터 경로
 
 # 테스트용 JWT 토큰 (새로운 예시 데이터에서 가져온 것)
-jwt_token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJya2R4b3FscyIsImF1dGgiOiJVU0VSIiwiZXhwIjoxNzQ4MDY5NDI0fQ.I0y7zVMUwRPMdr0oMwIGXI6lXmviabRVmi6zPiRXOsE"
+jwt_token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0IiwiYXV0aCI6IlVTRVIiLCJleHAiOjE3NDgyMjkwNjZ9.kWkMrvMrkdhWz6KhQI3VCIBG-p5UdLt4b72lbcAxu3s"
 
 # 테스트용 캐릭터 정보 (파이썬 딕셔너리)
 character_info = {
@@ -30,7 +30,7 @@ character_info = {
 }
 
 # 테스트용 쿼리
-query = "테스트 코드임 3"
+query = "내 직업에 대해서 자세한 공략을 부탁해."
 
 # 이전 대화 기록 (테스트용)
 before_question_list = [
@@ -88,6 +88,22 @@ try:
                 print("🌐 웹 검색 사용됨")
             if result.get('sources'):
                 print(f"📚 참고 출처: {len(result['sources'])}개")
+            
+            # 내부 검색 문서 제목
+            if result.get('internal_docs'):
+                print(f"📄 내부 검색 문서 ({len(result['internal_docs'])}개):")
+                for i, doc in enumerate(result['internal_docs'], 1):
+                    title = doc.get('metadata', {}).get('title', 'N/A')
+                    print(f"  {i}. {title}")
+                print()
+            
+            # 외부 검색 문서 제목
+            if result.get('web_docs'):
+                print(f"🌐 외부 검색 문서 ({len(result['web_docs'])}개):")
+                for i, doc in enumerate(result['web_docs'], 1):
+                    title = doc.get('metadata', {}).get('title', 'N/A')
+                    print(f"  {i}. {title}")
+                print()
                 
             # 디버깅 정보 (있는 경우만 출력)
             if result.get('enhanced_query'):
