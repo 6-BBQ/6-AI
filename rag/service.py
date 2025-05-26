@@ -11,8 +11,10 @@ from dotenv import load_dotenv
 
 # LLM & 임베딩
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import OpenAIEmbeddings
 from langchain_chroma import Chroma
+
+# Gemini 임베딩 import
+from vectorstore.gemini_embeddings import GeminiEmbeddings
 
 # 검색 관련
 from langchain.retrievers import EnsembleRetriever, ContextualCompressionRetriever
@@ -38,7 +40,7 @@ class StructuredRAGService:
     # --- 상수 정의 (기존과 동일하게 유지) ---
     CACHE_DIR_NAME = "cache"
     VECTOR_DB_DIR = "vector_db/chroma"
-    EMBED_MODEL_NAME = "text-embedding-3-large"
+    EMBED_MODEL_NAME = "text-embedding-004"
     BM25_CACHE_FILE = "bm25_retriever.pkl"
     CROSS_ENCODER_CACHE_FILE = "cross_encoder.pkl"
     LLM_MODEL_NAME = "models/gemini-2.5-flash-preview-05-20"
@@ -63,8 +65,8 @@ class StructuredRAGService:
         self.gemini_api_key = os.getenv("GEMINI_API_KEY")
         if not self.gemini_api_key:
             raise RuntimeError("GEMINI_API_KEY 환경변수가 필요합니다!")
-        if not os.getenv("OPENAI_API_KEY"):
-            print("경고: OPENAI_API_KEY 환경변수가 설정되지 않았습니다.")
+        
+        print("✅ Gemini API 키 확인 완료 - LLM 및 임베딩 모두 Gemini 사용")
 
     def _initialize_utilities(self):
         """유틸리티 클래스들 초기화"""
@@ -85,7 +87,13 @@ class StructuredRAGService:
         self.gemini_client = genai.Client(api_key=self.gemini_api_key)
         self.web_searcher = WebSearcher(self.gemini_client)
         
-        self.embed_fn = OpenAIEmbeddings(model=self.EMBED_MODEL_NAME)
+        # Gemini 임베딩 함수 초기화
+        self.embed_fn = GeminiEmbeddings(
+            model=self.EMBED_MODEL_NAME,
+            api_key=self.gemini_api_key,
+            task_type="RETRIEVAL_QUERY",  # 쿼리 검색용 최적화
+            rate_limit_delay=0.05  # 배치 처리로 인해 대기시간 단축
+        )
         self.vectordb = Chroma(
             persist_directory=self.VECTOR_DB_DIR,
             embedding_function=self.embed_fn
