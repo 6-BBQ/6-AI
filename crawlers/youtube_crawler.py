@@ -1,7 +1,7 @@
-# youtube_crawler.py 수정안
+# youtube_crawler.py 수정안 - 하이브리드 방식 + append 모드
 from __future__ import annotations
 from datetime import datetime, timezone
-import json, time, sys, urllib.parse
+import json, time, sys, urllib.parse, os
 from pathlib import Path
 
 import yt_dlp                          # pip install yt-dlp
@@ -12,7 +12,7 @@ from youtube_transcript_api import (
     CouldNotRetrieveTranscript
 )
 
-from utils import build_item           # priority_score·class_name 자동 부여
+from utils import build_item           # quality_score·class_name 자동 부여
 
 # ────────────────────────────────────────────────────────────────
 SAVE_PATH = Path("data/raw/youtube_raw.json")
@@ -59,8 +59,10 @@ def search_youtube_videos(query, max_results=20):
                 if len(vid) == 11:  # 유튜브 video_id는 항상 11자리
                     video_ids.append(vid)
 
+            print(f"🔍 검색 결과: '{query}'에서 {len(video_ids)}개 영상 ID 수집")
             return video_ids
     except Exception as e:
+        print(f"❌ 검색 오류: {e}")
         return []
 
 def list_channel_video_ids(channel_url: str, limit: int) -> list[str]:
@@ -68,6 +70,12 @@ def list_channel_video_ids(channel_url: str, limit: int) -> list[str]:
     yt-dlp 로 채널 → 영상 ID 목록 가져오기 (최대 limit 개)
     """
     try:
+        print(f"📺 채널 처리 중: {channel_url}")
+        
+        # 채널 URL 정규화 (여러 형식 지원)
+        if "@" in channel_url and "/videos" not in channel_url:
+            channel_url = f"{channel_url}/videos"
+        
         with yt_dlp.YoutubeDL(YDL_FLAT_OPTS) as ydl:
             info = ydl.extract_info(channel_url, download=False)
             
@@ -81,8 +89,10 @@ def list_channel_video_ids(channel_url: str, limit: int) -> list[str]:
                 if len(vid) == 11:  # 유튜브 video_id는 항상 11자리
                     video_ids.append(vid)
 
+            print(f"📺 채널 결과: {len(video_ids)}개 영상 ID 수집")
             return video_ids
     except Exception as e:
+        print(f"❌ 채널 크롤링 오류: {e}")
         return []
 
 def fetch_video_meta(video_id: str) -> dict:
@@ -134,7 +144,7 @@ def crawl_youtube_search(search_query: str, max_videos: int, visited_urls=None) 
     # 검색 결과 영상 ID 가져오기
     video_ids = search_youtube_videos(search_query, max_videos)
     
-    return process_video_ids(video_ids, visited_urls)
+    return process_video_ids(video_ids, visited_urls, "검색")
 
 def crawl_youtube_channel(channel_url: str, max_videos: int, visited_urls=None) -> list[dict]:
     """
@@ -152,38 +162,46 @@ def crawl_youtube_channel(channel_url: str, max_videos: int, visited_urls=None) 
     # 영상 ID 목록 가져오기
     video_ids = list_channel_video_ids(channel_url, max_videos)
     
-    return process_video_ids(video_ids, visited_urls)
+    return process_video_ids(video_ids, visited_urls, "채널")
 
-def process_video_ids(video_ids, visited_urls):
+def process_video_ids(video_ids, visited_urls, source_name="youtube"):
     """
-    영상 ID 목록을 처리하여 자막이 있는 영상만 저장
+    영상 ID 목록을 처리하여 자막이 있는 영상만 반환 (파일 저장 제거)
     
     Args:
         video_ids: 영상 ID 목록
         visited_urls: 방문한 URL 집합
+        source_name: 소스 이름 (로그용)
+    
+    Returns:
+        list[dict]: 처리된 영상 데이터 목록
     """
     results = []
     start_time = time.time()
+    print(f"🔄 {source_name} 영상 처리 시작: {len(video_ids)}개 영상")
 
-    for vid in video_ids:
+    for i, vid in enumerate(video_ids, 1):
         url = f"https://www.youtube.com/watch?v={vid}"
         
-        # 증분 크롤링: 이미 방문한 URL이면 건너뜀
+        # 증분 크롤링: 이미 방문한 URL이면 건너뛰기
         if url in visited_urls:
+            print(f"   ⏭️ {i}/{len(video_ids)}: 이미 방문한 URL 건너뛰기")
             continue
             
         # 방문 기록에 추가
         visited_urls.add(url)
 
         # 1) 메타데이터 가져오기
+        print(f"   📺 {i}/{len(video_ids)}: 메타데이터 수집 중...")
         meta = fetch_video_meta(vid)
 
         # 2) 자막 가져오기
         caption = fetch_caption_text(vid)
         if not caption:
+            print(f"   ⚠️ {i}/{len(video_ids)}: 자막 없음, 건너뛰기")
             continue    # 자막 없는 영상은 뉴비 가이드로 쓰기 어렵다 판단
 
-        # 3) utils.build_item → priority_score / class_name 자동 부여
+        # 3) utils.build_item → quality_score / class_name 자동 부여
         item = build_item(
             source="youtube",
             url=url,
@@ -194,21 +212,45 @@ def process_video_ids(video_ids, visited_urls):
             likes=meta["likes"],
         )
         results.append(item)
+        print(f"   ✅ {i}/{len(video_ids)}: '{meta['title'][:50]}...' 수집 완료")
 
         # API/서버 과부하 방지
         time.sleep(2.0)
 
     # 결과 요약
     elapsed_time = time.time() - start_time
+    print(f"✅ {source_name} 처리 완료: {len(results)}개 수집 ({elapsed_time:.1f}초 소요)")
+    
+    return results
 
-    # 📂 결과 저장
+def save_results_append(results: list[dict], source_name: str):
+    """
+    결과를 append 모드로 저장 (덮어쓰기 방지)
+    """
+    if not results:
+        return
+    
     save_dir = Path(SAVE_PATH).parent
     save_dir.mkdir(parents=True, exist_ok=True)
     
+    # 기존 데이터가 있으면 로드
+    existing_data = []
+    if SAVE_PATH.exists():
+        try:
+            with open(SAVE_PATH, "r", encoding="utf-8") as f:
+                existing_data = json.load(f)
+        except Exception as e:
+            print(f"⚠️ 기존 파일 로드 실패: {e}")
+            existing_data = []
+    
+    # 새 데이터 추가
+    existing_data.extend(results)
+    
+    # 전체 데이터 저장
     with open(SAVE_PATH, "w", encoding="utf-8") as f:
-        json.dump(results, f, ensure_ascii=False, indent=2)
-
-    return results
+        json.dump(existing_data, f, ensure_ascii=False, indent=2)
+    
+    print(f"💾 {source_name} 결과 저장 완료: {len(results)}개 추가, 총 {len(existing_data)}개")
 
 # 이전 함수와의 호환성을 위한 함수
 def crawl_youtube(source: str, max_videos: int, visited_urls=None) -> list[dict]:
@@ -228,25 +270,59 @@ def crawl_youtube(source: str, max_videos: int, visited_urls=None) -> list[dict]
         # 검색어 - 검색 결과 크롤링
         return crawl_youtube_search(source, max_videos, visited_urls)
 
-# 직접 실행 시
+# 직접 실행 시 - 하이브리드 방식 (검색 + 신뢰 채널)
 if __name__ == "__main__":
-    # 명령줄 인수 처리
+    print("🎆 YouTube 하이브리드 크롤링 시작!")
+    print("1️⃣ 검색 기반: 다양한 채널의 콘텐츠 수집")
+    print("2️⃣ 신뢰 채널: 고품질 콘텐츠 보장")
+    print()
+    
+    # 기존 파일 초기화 (새로운 크롤링 시작)
+    if SAVE_PATH.exists():
+        print("🗑️ 기존 YouTube 크롤링 결과 초기화")
+        os.remove(SAVE_PATH)
+    
+    # 최대 영상 수 (명령줄 인수로 조정 가능)
+    max_videos_per_source = 3
     if len(sys.argv) > 1:
-        query_or_channel = sys.argv[1]
-    else:
-        # 기본 검색어
-        query_or_channel = "던파 가이드"
-        
-    # 가져올 영상 수
-    max_videos = 10
-    if len(sys.argv) > 2:
         try:
-            max_videos = int(sys.argv[2])
+            max_videos_per_source = int(sys.argv[1])
         except ValueError:
             pass
     
-    print(f"YouTube 크롤링 시작: {query_or_channel} (최대 {max_videos}개)")
+    all_results = []
+    visited_urls = set()  # 중복 제거용
     
-    # 검색어 또는 채널 URL에 따라 다른 함수 호출
-    results = crawl_youtube(query_or_channel, max_videos)
-    print(f"크롤링 완료: {len(results)}개 영상")
+    # 1️⃣ 검색 기반 크롤링 (다양성 확보)
+    search_query = "던파 가이드"
+    print(f"🔍 검색 기반 크롤링: '{search_query}' (최대 {max_videos_per_source}개)")
+    try:
+        search_results = crawl_youtube_search(search_query, max_videos_per_source, visited_urls)
+        all_results.extend(search_results)
+        save_results_append(search_results, "검색")
+        print(f"   ✅ 검색 결과: {len(search_results)}개 수집")
+    except Exception as e:
+        print(f"   ⚠️ 검색 오류: {e}")
+    
+    # 2️⃣ 신뢰할 수 있는 채널들 (품질 보장)
+    trusted_channels = [
+        "https://www.youtube.com/@zangzidnf",  # 던파 관련 채널
+        # "다른 신뢰 채널 URL들을 여기에 추가"
+    ]
+    
+    for i, channel_url in enumerate(trusted_channels, 1):
+        print(f"🎥 신뢰 채널 {i}: {channel_url.split('/')[-1]} (최대 {max_videos_per_source}개)")
+        try:
+            channel_results = crawl_youtube_channel(channel_url, max_videos_per_source, visited_urls)
+            all_results.extend(channel_results)
+            save_results_append(channel_results, f"채널{i}")
+            print(f"   ✅ 채널 {i} 결과: {len(channel_results)}개 수집")
+        except Exception as e:
+            print(f"   ⚠️ 채널 {i} 오류: {e}")
+    
+    # 최종 결과
+    print()
+    print(f"🎆 하이브리드 크롤링 완료!")
+    print(f"📊 총 {len(all_results)}개 영상 수집 (자막 있는 영상만)")
+    print(f"🔄 방문한 URL: {len(visited_urls)}개 (중복 제거)")
+    print(f"💾 결과 저장 위치: {SAVE_PATH}")

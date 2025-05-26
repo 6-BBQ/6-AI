@@ -17,10 +17,11 @@ def run_script(path: str, args: list[str] = []):
 if __name__ == "__main__":
     print("\n🚀 던파 스펙업 파이프라인 전체 실행 시작\n")
 
-    # 1️⃣ 크롤링
+    # 1️⃣ 크롤링 (하이브리드 모드 사용)
     run_script("crawlers/crawler.py", [
         "--pages", "30",
         "--depth", "2",
+        "--yt-mode", "hybrid",
         "--yt-max", "30",
         "--merge",
         "--incremental"

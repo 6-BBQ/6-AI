@@ -7,8 +7,9 @@ from pathlib import Path
 from typing import Dict, List
 from dotenv import load_dotenv
 
+from google import genai
+
 from langchain.docstore.document import Document
-from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 
 load_dotenv()
@@ -18,7 +19,7 @@ load_dotenv()
 PROCESSED_PATH = Path("data/processed_docs.jsonl")
 CHROMA_DIR = "vector_db/chroma"        # persist 디렉터리
 BATCH_SIZE = 200                       # GPU/CPU 상황에 맞게 조절
-EMBEDDING_MODEL = "text-embedding-3-large"
+EMBEDDING_MODEL = "gemini-embedding-exp-03-07"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,7 +32,11 @@ log = logging.getLogger("build_vector_db")
 if "OPENAI_API_KEY" not in os.environ:
     raise RuntimeError("❌ OPENAI_API_KEY 환경변수를 먼저 설정하세요!")
 
-embedding_fn = OpenAIEmbeddings(model=EMBEDDING_MODEL)
+client = genai.Client(api_key="GEMINI_API_KEY")
+
+embedding_fn = client.models.embed_content(
+    model="EMBEDDING_MODEL"
+)
 
 # 먼저 기존 폴더 제거
 if Path(CHROMA_DIR).exists():

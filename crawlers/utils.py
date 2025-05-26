@@ -53,11 +53,13 @@ def detect_class_name(title: str, body: Optional[str] = None) -> Optional[str]:
 
     # 3️⃣ Fuzzy Matching (조건부)
     if len(title) < 25 and any(k in text for k in CONTEXT_KEYWORDS):
-        match, score, _ = process.extractOne(
+        result = process.extractOne(
             title.replace(" ", ""), _JOB_LIST, score_cutoff=92
         )
-        if score >= 92:
-            return match
+        if result:  # None 체크 추가
+            match, score, _ = result
+            if score >= 92:
+                return match
 
     return None
 
@@ -115,38 +117,63 @@ def calculate_content_score(text, title=""):
     
     return min(100, score)
 
+# ────────────────── 사이트별 정규화 기준 ──────────────────
+SITE_NORMALIZATION = {
+    "youtube": {"views_base": 50000, "likes_base": 500},
+    "arca": {"views_base": 5000, "likes_base": 50}, 
+    "dcinside": {"views_base": 1000, "likes_base": 10},
+    "official": {"views_base": 10000, "likes_base": 100}  # 공홈은 중간값
+}
+
 # ────────────────── 우선순위 계산 ──────────────────
 _SRC_WEIGHT = {"official":1.0, "youtube":0.9, "arca":0.75, "dcinside":0.7}
 
 def _freshness_w(date: datetime, today: datetime) -> float:
-    return max(0.0, 1 - (today - date).days/90)      # 90일 내 : 0~1
+    return max(0.0, 1 - (today - date).days/180)      # 180일 내 : 0~1
 
-def _engage_w(views: int, likes: int) -> float:
+def _engage_w(views: int, likes: int, source: str) -> float:
+    """사이트별 정규화된 인기도 점수 계산"""
     import math
-    v = min(1.0, math.log1p(views)    / 10)
-    l = min(1.0, math.log1p(likes)    /  7)
-    return (v*0.7)+(l*0.3)             # 0~1
+    
+    # 사이트별 정규화 기준 가져오기
+    norm = SITE_NORMALIZATION.get(source, {"views_base": 10000, "likes_base": 100})
+    views_base = norm["views_base"]
+    likes_base = norm["likes_base"]
+    
+    # 사이트별 상대적 인기도로 정규화
+    normalized_views = views / views_base
+    normalized_likes = likes / likes_base
+    
+    # 로그 정규화 적용
+    v = min(1.0, math.log1p(normalized_views) / 2.5)  # 0~1 사이
+    l = min(1.0, math.log1p(normalized_likes) / 2.0)   # 0~1 사이
+    
+    return (v * 0.7) + (l * 0.3)  # 0~1
 
-def calc_priority(
+def calc_quality_score(
     *, source: str, date: datetime,
     views: int = 0, likes: int = 0,
-    class_name: str | None = None,
     today: datetime | None = None,
     content_score: float = 0.0
 ) -> float:
+    """콘텐츠 품질 종합 점수 계산 (직업 점수 제외, 통합 점수)"""
     today = today or datetime.now(timezone.utc)
     
-    # 콘텐츠 점수 반영 (0~1 사이로 정규화)
+    # 콘텐츠 품질 점수 반영 (0~1 사이로 정규화)
     content_weight = min(1.0, content_score / 100)
     
-    return round(
-        (_SRC_WEIGHT.get(source,0.5) * 4) +
-        (_engage_w(views,likes) * 3) +
-        (_freshness_w(date,today) * 1.5) +
-        ((1.0 if class_name is None else 0.3) * 0.5) +
-        (content_weight * 2),  # 콘텐츠 점수 가중치 반영
-        2
+    # 사이트별 정규화된 인기도 계산
+    engagement_score = _engage_w(views, likes, source)
+    
+    # 통합 점수 계산 (최대 10점 정도)
+    total_score = (
+        (_SRC_WEIGHT.get(source, 0.5) * 3.0) +     # 출처 신뢰도 (0~3.0)
+        (engagement_score * 2.5) +                  # 사이트별 정규화된 인기도 (0~2.5)
+        (_freshness_w(date, today) * 2.0) +         # 신선도 (0~2.0)
+        (content_weight * 2.5)                      # 콘텐츠 품질 (0~2.5)
     )
+    
+    return round(total_score, 2)
 
 def load_yt_ids(path: str | Path) -> list[str]:
     if not path:
@@ -200,14 +227,13 @@ def build_item(
     # 4) 콘텐츠 품질 점수 계산
     content_score = calculate_content_score(clean_body, title)
 
-    # 5) 직업 이름 감지
+    # 5) 직업 이름 감지 (메타데이터용만, 점수에는 미반영)
     cls = detect_class_name(title, clean_body)
     
-    # 6) 우선순위 점수 계산
-    score = calc_priority(
+    # 6) 통합 품질 점수 계산 (직업 점수 제외)
+    quality_score = calc_quality_score(
         source=source, date=date_obj,
         views=views, likes=likes,
-        class_name=cls,
         content_score=content_score
     )
     
@@ -219,8 +245,7 @@ def build_item(
         "likes": likes,
         "class_name": cls,
         "source": source,
-        "priority_score": score,
-        "content_score": content_score,
+        "quality_score": quality_score,  # 통합된 단일 점수
         "body": clean_body,
         "timestamp": datetime.now(timezone.utc).isoformat()
     }

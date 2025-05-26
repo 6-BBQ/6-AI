@@ -55,9 +55,14 @@ def main():
     )
     parser.add_argument("--pages", type=int, default=10, help="각 게시판 최대 페이지 수")
     parser.add_argument("--depth", type=int, default=2, help="본문 링크 재귀 depth")
+    parser.add_argument("--yt-mode", type=str, default="hybrid", 
+                        choices=["channel", "search", "hybrid"],
+                        help="YouTube 크롤링 모드 (channel: 채널만, search: 검색만, hybrid: 둘 다)")
     parser.add_argument("--yt-channel", type=str,
-                        default="https://www.youtube.com/@zangzidnf/videos",
+                        default="https://www.youtube.com/@zangzidnf",
                         help="YouTube 채널 URL(@핸들 또는 /channel/ID)")
+    parser.add_argument("--yt-query", type=str, default="던파 가이드",
+                        help="YouTube 검색 쿼리")
     parser.add_argument("--yt-max", type=int, default=20,
                         help="채널에서 가져올 최신 영상 개수")
     parser.add_argument("--parallel", action="store_true", help="병렬 처리 활성화")
@@ -81,11 +86,16 @@ def main():
             pass
         return
 
-    print(f"\n🔔 통합 크롤링 시작 ({datetime.now():%Y-%m-%d %H:%M:%S})\n"
-          f"   - pages = {args.pages}, depth = {args.depth}\n"
-          f"   - yt-channel = {args.yt_channel}, yt-max = {args.yt_max}\n"
-          f"   - 병렬 처리 = {args.parallel}, 작업자 수 = {args.workers}\n"
-          f"   - 증분 크롤링 = {args.incremental}")
+    print(f"\n🔔 통합 크롤링 시작 ({datetime.now():%Y-%m-%d %H:%M:%S})")
+    print(f"   - pages = {args.pages}, depth = {args.depth}")
+    print(f"   - YouTube 모드 = {args.yt_mode}")
+    if args.yt_mode in ['hybrid', 'channel']:
+        print(f"   - yt-channel = {args.yt_channel}")
+    if args.yt_mode in ['hybrid', 'search']:
+        print(f"   - yt-query = '{args.yt_query}'")
+    print(f"   - yt-max = {args.yt_max}")
+    print(f"   - 병렬 처리 = {args.parallel}, 작업자 수 = {args.workers}")
+    print(f"   - 증분 크롤링 = {args.incremental}")
     
     # 증분 크롤링을 위한 방문 URL 로드
     visited_urls = load_visited_urls() if args.incremental else set()
@@ -107,7 +117,41 @@ def main():
         crawl_tasks.append(("아카", lambda: run_crawler(crawl_arca, args.pages, args.depth, visited_urls)))
     
     if crawl_all or "youtube" in sources:
-        crawl_tasks.append(("유튜브", lambda: run_crawler(crawl_youtube, args.yt_channel, args.yt_max, visited_urls)))
+        def youtube_crawl_task():
+            youtube_results = []
+            if args.yt_mode in ["hybrid", "search"]:
+                # 검색 기반 크롤링
+                from youtube_crawler import crawl_youtube_search
+                search_results = run_crawler(crawl_youtube_search, args.yt_query, args.yt_max // 2 if args.yt_mode == "hybrid" else args.yt_max, visited_urls)
+                youtube_results.extend(search_results)
+                
+            if args.yt_mode in ["hybrid", "channel"]:
+                # 채널 기반 크롤링
+                from youtube_crawler import crawl_youtube_channel
+                channel_results = run_crawler(crawl_youtube_channel, args.yt_channel, args.yt_max // 2 if args.yt_mode == "hybrid" else args.yt_max, visited_urls)
+                youtube_results.extend(channel_results)
+            
+            # YouTube 결과를 개별 파일에 저장 (중복 제거 된 상태)
+            from youtube_crawler import save_results_append
+            if youtube_results:
+                # 기존 파일 초기화 후 저장
+                youtube_raw_path = "data/raw/youtube_raw.json"
+                import os
+                if os.path.exists(youtube_raw_path):
+                    os.remove(youtube_raw_path)
+                
+                # 결과 저장
+                import json
+                from pathlib import Path
+                save_dir = Path(youtube_raw_path).parent
+                save_dir.mkdir(parents=True, exist_ok=True)
+                with open(youtube_raw_path, "w", encoding="utf-8") as f:
+                    json.dump(youtube_results, f, ensure_ascii=False, indent=2)
+                print(f"💾 YouTube 통합 결과 저장: {len(youtube_results)}개")
+                
+            return youtube_results
+            
+        crawl_tasks.append(("유튜브", youtube_crawl_task))
     
     # 결과 및 통계
     results = {}
@@ -147,10 +191,10 @@ def main():
     # 실행 시간 계산
     elapsed_time = time.time() - start_time
     
-    # 품질 임계값 필터링
+    # 품질 임계값 필터링 (content_score -> quality_score 변경)
     if args.quality_threshold > 0:
         original_count = len(all_results)
-        all_results = [item for item in all_results if item.get("content_score", 0) >= args.quality_threshold]
+        all_results = [item for item in all_results if item.get("quality_score", 0) >= args.quality_threshold]
         filtered_count = original_count - len(all_results)
     
     # 결과 병합 저장
