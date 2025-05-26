@@ -101,7 +101,7 @@ class StructuredRAGService:
         # 벡터 검색기 설정
         self.vector_retriever = self.vectordb.as_retriever(
             search_type="mmr",
-            search_kwargs={"k": 15, "fetch_k": 30, "lambda_mult": 0.6},
+            search_kwargs={"k": 15, "fetch_k": 30, "lambda_mult": 0.8},
         )
         
         # BM25 검색기 생성 (캐시 사용)
@@ -115,7 +115,7 @@ class StructuredRAGService:
         
         # CrossEncoder 재랭킹 추가
         cross_encoder_model = self._get_cross_encoder_model()
-        compressor = CrossEncoderReranker(model=cross_encoder_model, top_n=10)
+        compressor = CrossEncoderReranker(model=cross_encoder_model, top_n=15)
         base_retriever = ContextualCompressionRetriever(
             base_retriever=self.rrf_retriever,
             base_compressor=compressor,
@@ -150,14 +150,13 @@ class StructuredRAGService:
 - 대답에는 내부 데이터를 최대한 사용하고, 외부 데이터로 검토를 받으세요.
 - 사용자의 질문 범위만 다루며, 관련 없는 설명은 생략하세요.
 - 순서를 나열하며 설명하고, 짧고 간결하게 핵심만 설명하세요.
-- 출처는 제공하지 않아도 됩니다. URL도 절대 작성하지 마세요.
+- 답변엔 간단한 출처를 함께 작성하세요.
 
 [콘텐츠 관련]
 - 콘텐츠 관련 대답이 들어올 경우엔, 명성을 기준으로 대답하세요.
 - 콘텐츠에는 입장 명성과 권장 명성이 있는데, 권장 명성 기준으로 얘기하세요.
 
 [이벤트 안내 기준]
-- 종료일이 2025-05-22 이후 → 참여 권장
 - 종료된 이벤트 → "해당 이벤트는 종료되었습니다."
 - 종료일이 없을 경우 → "이벤트 종료일을 확인해주세요."
 

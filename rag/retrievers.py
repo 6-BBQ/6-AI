@@ -18,52 +18,36 @@ class MetadataAwareRetriever:
         self.top_n = top_n
     
     def get_relevant_documents(self, query: str) -> List[Document]:
-        """메타데이터 기반 스코어링으로 문서 검색"""
+        """메타데이터 기반 스코어링으로 문서 검색 (통합 품질 점수 + 쿼리 관련성)"""
         # 기본 검색기로 문서 검색
         docs = self.base_retriever.get_relevant_documents(query)
         
-        # 메타데이터 기반 스코어링
+        # 메타데이터 기반 스코어링 (크롤링 통합 점수 + RAG 관련성 점수)
         scored_docs = []
         for doc in docs:
             score = 1.0
             meta = doc.metadata or {}
             
-            # 조회수 기반 스코어링
+            # 통합된 콘텐츠 품질 점수 활용 (이미 사이트별 정규화+신선도+인기도 반영)
             try: 
-                views = int(meta.get("views", 0))
-                score += 0.2 if views > 100000 else (0.1 if views > 10000 else 0)
+                quality = float(meta.get("quality_score", 0.0))
+                score += quality * 0.12  # 크롤링 시점 품질 점수 반영
             except ValueError: 
                 pass
             
-            # 좋아요 기반 스코어링
-            try: 
-                likes = int(meta.get("likes", 0))
-                score += 0.1 if likes > 100 else (0.05 if likes > 50 else 0)
-            except ValueError: 
-                pass
-            
-            # 우선순위 점수 반영
-            try: 
-                priority = float(meta.get("priority_score", 0.0))
-                score += priority * 0.1
-            except ValueError: 
-                pass
-            
-            # 콘텐츠 점수 반영
-            try: 
-                content_score = float(meta.get("content_score", 0.0))
-                score += content_score * 0.01
-            except ValueError: 
-                pass
-            
-            # 직업명 일치 보너스 (JSON 데이터에서는 class_name으로 저장됨)
+            # 쿼리 관련성: 직업명 일치 보너스 (가장 중요한 요소)
             if class_name := meta.get("class_name"):
-                # query에서 job 정보를 추출하여 비교 (예: '레인저(여)' 또는 '레인저' 등)
                 if isinstance(class_name, str):
-                    # 정확한 직업명 매칭 또는 부분 매칭 확인
-                    if (class_name.lower() in query.lower()) or \
-                       any(part.strip() in query.lower() for part in class_name.split('(') if part.strip()):
-                        score += 0.3
+                    query_lower = query.lower()
+                    class_lower = class_name.lower()
+                    
+                    # 직업 매칭 정확도에 따른 차등 점수
+                    if class_lower == query_lower:  # 완전 일치
+                        score += 1.0
+                    elif class_lower in query_lower or query_lower in class_lower:  # 부분 일치
+                        score += 0.7
+                    elif any(part.strip().lower() in query_lower for part in class_name.split('(') if part.strip()):  # 기본 직업명 매칭
+                        score += 0.5
             
             scored_docs.append((doc, score))
         
