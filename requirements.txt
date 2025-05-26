@@ -16,16 +16,19 @@ python-multipart>=0.0.6
 pyjwt>=2.8.0
 
 # ──────────── LLM & AI 프레임워크 ────────────
-# OpenAI
+# OpenAI (백업용)
 openai>=1.0.0
 langchain>=0.1.0
 langchain-openai>=0.0.5
 langchain-community>=0.0.13
 
-# Google Gemini
+# Google Gemini (LLM 전용)
 langchain-google-genai>=1.0.0
 google-generativeai>=0.3.0
 google-genai>=0.1.0
+
+# HuggingFace 임베딩 (한국어 특화)
+langchain-huggingface>=0.0.3
 
 # ──────────── 벡터 데이터베이스 ────────────
 langchain-chroma>=0.0.1
@@ -35,10 +38,23 @@ chromadb>=0.4.22
 # BM25 검색
 rank-bm25>=0.2.2
 
-# 크로스 인코더 재랭킹
-sentence-transformers>=2.2.0
-transformers>=4.30.0
+# HuggingFace 임베딩 & 트랜스포머
+sentence-transformers>=2.7.0  # BGE 모델 지원을 위해 최신 버전
+transformers>=4.40.0  # BGE-M3 지원
 torch>=2.0.0
+torchvision>=0.15.0  # CUDA 지원
+torchaudio>=2.0.0   # 오디오 처리 (선택적)
+
+# BGE 모델 특화 패키지
+FlagEmbedding>=1.2.0  # BGE 모델 최적화
+safetensors>=0.4.0   # 모델 로딩 최적화
+accelerate>=0.20.0   # GPU 가속
+
+# ──────────── CUDA & GPU 지원 ────────────
+# CUDA 11.8 지원 (GPU 사용시)
+# torch는 위에서 이미 설치됨
+# 추가 CUDA 툴킷 (필요시 주석 해제)
+# nvidia-ml-py>=12.0.0
 
 # ──────────── 한국어 NLP ────────────
 kiwipiepy>=0.18.0
@@ -65,6 +81,7 @@ youtube-transcript-api>=0.6.1
 # ──────────── 데이터 처리 ────────────
 numpy>=1.24.0
 pandas>=2.0.0
+scipy>=1.11.0  # 임베딩 연산 최적화
 
 # ──────────── 비동기 처리 ────────────
 aiohttp>=3.8.0
@@ -92,18 +109,17 @@ structlog>=23.1.0
 # 메모리 효율성
 memory-profiler>=0.61.0
 
-# Base64 처리 (기본 내장이지만 명시)
-# base64는 Python 표준 라이브러리
-
-# ──────────── 선택적 패키지 (성능 최적화) ────────────
-# GPU 가속 (CUDA 사용 가능시)
-# torch-audio>=2.0.0  # 필요시 주석 해제
-
+# ──────────── 성능 최적화 패키지 ────────────
 # 더 빠른 JSON 처리
 orjson>=3.9.0
 
 # 더 빠른 HTTP 클라이언트
 httpx>=0.25.0
+
+# 임베딩 계산 최적화
+onnx>=1.15.0  # ONNX 런타임 지원
+onnxruntime-gpu>=1.16.0  # GPU 가속 ONNX (CUDA 환경)
+faiss-gpu>=1.7.4  # GPU 가속 벡터 검색 (선택적)
 
 # ──────────── 개발/테스트 전용 (운영시 제거 가능) ────────────
 # 테스트 프레임워크
@@ -113,3 +129,7 @@ pytest-asyncio>=0.21.0
 # 코드 포맷팅
 black>=23.0.0
 isort>=5.12.0
+
+# ──────────── 모델 다운로드 & 캐싱 최적화 ────────────
+huggingface-hub>=0.20.0  # 모델 다운로드 최적화
+datasets>=2.16.0  # 데이터셋 처리 (선택적)

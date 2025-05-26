@@ -1,11 +1,10 @@
 import requests
-from test_jwt import create_test_jwt_token # 이 함수가 있다고 가정
 
 # 서버 주소
 API_URL = "http://localhost:8000/api/df/chat" # main.py의 prefix와 endpoints.py 라우터 경로
 
 # 테스트용 JWT 토큰 (새로운 예시 데이터에서 가져온 것)
-jwt_token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0IiwiYXV0aCI6IlVTRVIiLCJleHAiOjE3NDgyNDAzMTR9.8LY1eJOhOxVDeFFSm9jxx5KV-AXTFE5Tqhrk6flpxag"
+jwt_token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0IiwiYXV0aCI6IlVTRVIiLCJleHAiOjE3NDgyNTIzNjZ9.IZCwEVHJYWTntgL76BtwqS-PT9wga7MJgd_RlpcP8ho"
 
 # 테스트용 캐릭터 정보 (파이썬 딕셔너리)
 character_info = {
@@ -30,17 +29,13 @@ character_info = {
 }
 
 # 테스트용 쿼리 (직업 매칭 테스트용)
-query = "이전에 종결 마부를 물어봤는데, 자세한 이름과 성능을 적어줄 수 있어?"
+query = "현시점 종결 마부는 뭐야?"
 
 # 이전 대화 기록 (테스트용)
 before_question_list = [
-    "내 스펙에서 종결 마부가 뭐야?",
-    "내 직업에서 종결 무기가 뭐야?"
 ]
 
 before_response_list = [
-    "나벨 레이드에서 새로 나온 마법부여 카드가 종결입니다다",
-    "레인저에게는 노블레스 오브 레인저나 리턴드 스나이퍼 오브 블랙로즈가 종결로 뽑힙니다."
 ]
 
 # 새로운 API 요청 데이터 구성
@@ -97,12 +92,19 @@ try:
                     print(f"  {i}. {title}")
                 print()
             
-            # 외부 검색 문서 제목
-            if result.get('web_docs'):
-                print(f"🌐 외부 검색 문서 ({len(result['web_docs'])}개):")
-                for i, doc in enumerate(result['web_docs'], 1):
+            # 외부 검색 문서 제목 (처음 2개 제외 - Gemini 검색 결과, 검색 제안)
+            if result.get('web_docs') and len(result['web_docs']) > 2:
+                actual_web_docs = result['web_docs'][2:]  # 3번째부터 가져오기
+                print(f"🌐 외부 검색 문서 ({len(actual_web_docs)}개):")
+                for i, doc in enumerate(actual_web_docs, 1):
                     title = doc.get('metadata', {}).get('title', 'N/A')
+                    url = doc.get('metadata', {}).get('url', 'N/A')
                     print(f"  {i}. {title}")
+                    if url != 'N/A':
+                        print(f"     🔗 {url}")
+                print()
+            elif result.get('web_docs'):
+                print("🌐 외부 검색 문서: 실제 웹사이트 검색 결과 없음")
                 print()
                 
             # 디버깅 정보 (있는 경우만 출력)

@@ -23,7 +23,7 @@ class WebSearcher:
         """Gemini Search Grounding을 사용한 웹 검색"""
         enhanced_query = self.text_processor.enhance_query_with_character(query, character_info)
         
-        # 시스템 인스트럭션 (프롬프트는 건드리지 않음)
+        # 시스템 인스트럭션 (던파 전문가 웹검색 버전)
         system_instruction = """당신은 던전앤파이터 전문가입니다.
 [중요한 날짜 제약사항]
 - 반드시 2025년 1월 9일 이후의 최신 정보만 검색하고 사용하세요
@@ -46,7 +46,7 @@ class WebSearcher:
         # 최종 프롬프트 구성
         final_prompt = (
             f"{system_instruction}\n{character_context_str}\n"
-            f"[검색 요청]\n2025년 던전앤파이터 \"{enhanced_query}\"에 대한 간단하고 핵심적인 정보만 검색해주세요."
+            f"[검색 요청]\n2025년 던전앤파이터 \"{enhanced_query}\"에 대한 최신 정보를 단계별로 순서화하여 검색해주세요."
         )
         
         try:
@@ -62,7 +62,7 @@ class WebSearcher:
                 config=GenerateContentConfig(
                     tools=[google_search_tool],
                     temperature=0.1,  # 일관성 있는 답변을 위해 낮게 설정
-                    max_output_tokens=1000,  # 충분한 정보 확보를 위해 증가
+                    max_output_tokens=2000
                 )
             )
             

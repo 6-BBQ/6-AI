@@ -35,7 +35,7 @@ class SearcherFactory:
         return docs_for_bm25
     
     @staticmethod
-    def create_bm25_retriever(docs_for_bm25: List[Document], k: int = 15) -> BM25Retriever:
+    def create_bm25_retriever(docs_for_bm25: List[Document], k: int = 25) -> BM25Retriever:
         """BM25 검색기 생성"""
         bm25_retriever = BM25Retriever.from_documents(docs_for_bm25)
         bm25_retriever.k = k
