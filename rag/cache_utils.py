@@ -29,7 +29,7 @@ class CacheManager:
         if character_info:
             # FastAPI에서 변환된 키들을 사용
             char_key_parts = [
-                character_info.get('class', ''),
+                character_info.get('job', ''),
                 str(character_info.get('fame', ''))
             ]
             
