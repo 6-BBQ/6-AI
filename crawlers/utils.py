@@ -117,38 +117,77 @@ def calculate_content_score(text, title=""):
     
     return min(100, score)
 
-# ────────────────── 사이트별 정규화 기준 ──────────────────
+# ────────────────── 사이트별 정규화 기준 (현실적 수치) ──────────────────
 SITE_NORMALIZATION = {
-    "youtube": {"views_base": 50000, "likes_base": 500},
-    "arca": {"views_base": 5000, "likes_base": 50}, 
-    "dcinside": {"views_base": 1000, "likes_base": 10},
-    "official": {"views_base": 10000, "likes_base": 100}  # 공홈은 중간값
+    "youtube": {
+        "views_base": 15_000,
+        "likes_base": 400,
+        "likes_ratio_range": (0.01, 0.04)
+    },
+
+    # 아카라이브
+    "arca": {
+        "views_base": 5_000,
+        "likes_base": 20,
+        "likes_ratio_range": (0.003, 0.015)
+    },
+
+    # 디시인사이드
+    "dcinside": {
+        "views_base": 15_000,
+        "likes_base": 30,
+        "likes_ratio_range": (0.0015, 0.008)
+    },
+
+    # 공식 홈페이지
+    "official": {
+        "views_base": 120_000,
+        "likes_base": 50,
+        "likes_ratio_range": (0.0002, 0.002)
+    }
 }
 
 # ────────────────── 우선순위 계산 ──────────────────
-_SRC_WEIGHT = {"official":1.0, "youtube":0.9, "arca":0.75, "dcinside":0.7}
+_SRC_WEIGHT = {"official":1.0, "youtube":0.95, "arca":0.9, "dcinside":0.9}
 
 def _freshness_w(date: datetime, today: datetime) -> float:
-    return max(0.0, 1 - (today - date).days/180)      # 180일 내 : 0~1
+    return max(0.0, 1 - (today - date).days/90)
 
 def _engage_w(views: int, likes: int, source: str) -> float:
-    """사이트별 정규화된 인기도 점수 계산"""
+    """사이트별 정규화된 인기도 점수 계산 (현실적 비율 반영)"""
     import math
     
     # 사이트별 정규화 기준 가져오기
-    norm = SITE_NORMALIZATION.get(source, {"views_base": 10000, "likes_base": 100})
+    norm = SITE_NORMALIZATION.get(source, {"views_base": 15000, "likes_base": 30})
     views_base = norm["views_base"]
     likes_base = norm["likes_base"]
+    
+    # 현실적인 좋아요/조회수 비율 체크
+    if views > 0:
+        actual_ratio = likes / views
+        expected_range = norm.get("likes_ratio_range", (0.001, 0.010))
+        
+        # 비율이 현실적 범위를 벗어나면 페널티 적용
+        ratio_penalty = 1.0
+        if actual_ratio > expected_range[1] * 2:  # 너무 높은 비율
+            ratio_penalty = 0.8
+        elif actual_ratio < expected_range[0] * 0.5:  # 너무 낮은 비율
+            ratio_penalty = 0.9
+    else:
+        ratio_penalty = 1.0
     
     # 사이트별 상대적 인기도로 정규화
     normalized_views = views / views_base
     normalized_likes = likes / likes_base
     
-    # 로그 정규화 적용
-    v = min(1.0, math.log1p(normalized_views) / 2.5)  # 0~1 사이
-    l = min(1.0, math.log1p(normalized_likes) / 2.0)   # 0~1 사이
+    # 로그 정규화 적용 (현실적 범위 고려)
+    v = min(1.0, math.log1p(normalized_views) / 3.0)
+    l = min(1.0, math.log1p(normalized_likes) / 2.5)
     
-    return (v * 0.7) + (l * 0.3)  # 0~1
+    # 비율 페널티 적용
+    engagement = ((v * 0.6) + (l * 0.4)) * ratio_penalty
+    
+    return min(1.0, engagement)
 
 def calc_quality_score(
     *, source: str, date: datetime,
@@ -167,10 +206,10 @@ def calc_quality_score(
     
     # 통합 점수 계산 (최대 10점 정도)
     total_score = (
-        (_SRC_WEIGHT.get(source, 0.5) * 3.0) +     # 출처 신뢰도 (0~3.0)
-        (engagement_score * 2.5) +                  # 사이트별 정규화된 인기도 (0~2.5)
-        (_freshness_w(date, today) * 2.0) +         # 신선도 (0~2.0)
-        (content_weight * 2.5)                      # 콘텐츠 품질 (0~2.5)
+        (_SRC_WEIGHT.get(source, 0.5) * 2.5) +       # 사이트 영향 약화
+        (engagement_score * 2.0) +                  # 인기도 영향 완화
+        (_freshness_w(date, today) * 2.0) +         
+        (content_weight * 3.5)                      # 콘텐츠 품질 강화
     )
     
     return round(total_score, 2)
@@ -198,6 +237,23 @@ def load_yt_ids(path: str | Path) -> list[str]:
         except Exception as e2:
             logger.error(f"❌ 절대 경로 시도도 실패: {e2}")
             return []
+
+# ────────────────── 크롤러별 저장 함수 ──────────────────
+def save_official_data(data: list, append: bool = True):
+    """공식 사이트 데이터 저장"""
+    save_crawler_data("data/raw/official_raw.json", data, append)
+
+def save_dc_data(data: list, append: bool = True):
+    """디시인사이드 데이터 저장"""
+    save_crawler_data("data/raw/dc_raw.json", data, append)
+
+def save_arca_data(data: list, append: bool = True):
+    """아카라이브 데이터 저장"""
+    save_crawler_data("data/raw/arca_raw.json", data, append)
+
+def save_youtube_data(data: list, append: bool = True):
+    """YouTube 데이터 저장"""
+    save_crawler_data("data/raw/youtube_raw.json", data, append)
 
 # ────────────────── 결과 dict 빌더 ──────────────────
 def build_item(
@@ -278,3 +334,52 @@ def filter_by_keywords(text, include_keywords, exclude_keywords):
             return True
     
     return False
+
+# ────────────────── 증분 저장 유틸 ──────────────────
+def save_crawler_data(file_path: str, data: list, append: bool = True):
+    """크롤링 데이터 증분 저장 함수"""
+    import os
+    import json
+    from pathlib import Path
+    
+    if not data:
+        logger.info(f"저장할 데이터가 없음: {file_path}")
+        return
+    
+    # 디렉토리 생성
+    Path(file_path).parent.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        if append and os.path.exists(file_path):
+            # 기존 데이터 로드
+            with open(file_path, "r", encoding="utf-8") as f:
+                existing_data = json.load(f)
+            
+            # URL 중복 제거를 위한 기존 URL 집합
+            existing_urls = {item.get('url') for item in existing_data if isinstance(item, dict) and 'url' in item}
+            
+            # 새로운 데이터 중 중복되지 않는 것만 추가
+            new_data = [item for item in data if item.get('url') not in existing_urls]
+            
+            if new_data:
+                final_data = existing_data + new_data
+                logger.info(f"증분 저장: 기존 {len(existing_data)}개 + 새로운 {len(new_data)}개 = 총 {len(final_data)}개")
+            else:
+                final_data = existing_data
+                logger.info(f"새로운 데이터 없음 (모두 중복): {file_path}")
+        else:
+            # 전체 저장 모드
+            final_data = data
+            logger.info(f"전체 저장: {len(final_data)}개 데이터")
+        
+        # 파일 저장
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(final_data, f, ensure_ascii=False, indent=2)
+        
+        logger.info(f"✅ 데이터 저장 완료: {file_path}")
+        
+    except Exception as e:
+        logger.error(f"❌ 데이터 저장 실패 ({file_path}): {e}")
+        # 실패 시 새 데이터만 저장
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)

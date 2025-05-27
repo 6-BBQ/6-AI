@@ -8,10 +8,11 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 from dotenv import load_dotenv
+import torch
 
 # LLM & 임베딩
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import OpenAIEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 
 # 검색 관련
@@ -38,7 +39,7 @@ class StructuredRAGService:
     # --- 상수 정의 (기존과 동일하게 유지) ---
     CACHE_DIR_NAME = "cache"
     VECTOR_DB_DIR = "vector_db/chroma"
-    EMBED_MODEL_NAME = "text-embedding-3-large"
+    EMBED_MODEL_NAME = "dragonkue/bge-m3-ko"
     BM25_CACHE_FILE = "bm25_retriever.pkl"
     CROSS_ENCODER_CACHE_FILE = "cross_encoder.pkl"
     LLM_MODEL_NAME = "models/gemini-2.5-flash-preview-05-20"
@@ -89,14 +90,15 @@ class StructuredRAGService:
         
         # 임베딩 함수 변경 (한국어 성능 향상)
         print("✅ 임베딩 사용 - 한국어 성능 최적화")
-        self.embed_fn = OpenAIEmbeddings(
-            model=self.EMBED_MODEL_NAME,
-            openai_api_key=os.environ["OPENAI_API_KEY"]
+        self.embedding_fn = HuggingFaceEmbeddings(
+            model_name=self.EMBED_MODEL_NAME,
+            model_kwargs={"device": "cuda" if torch.cuda.is_available() else "cpu"},
+            encode_kwargs={"normalize_embeddings": True}  # BGE 시리즈는 보통 정규화 필요
         )
         
         self.vectordb = Chroma(
             persist_directory=self.VECTOR_DB_DIR,
-            embedding_function=self.embed_fn
+            embedding_function=self.embedding_fn
         )
         
         print("✅ 핵심 컴포넌트 초기화 완료")
@@ -109,7 +111,7 @@ class StructuredRAGService:
         # 벡터 검색기 설정 (검색 개수 대폭 증가)
         self.vector_retriever = self.vectordb.as_retriever(
             search_type="mmr",
-            search_kwargs={"k": 50, "fetch_k": 150, "lambda_mult": 0.7},
+            search_kwargs={"k": 60, "fetch_k": 180, "lambda_mult": 0.6},
         )
         
         # BM25 검색기 생성 (캐시 사용)
@@ -118,12 +120,12 @@ class StructuredRAGService:
         # 앙상블 검색기 생성
         self.rrf_retriever = EnsembleRetriever(
             retrievers=[self.vector_retriever, self.bm25_retriever],
-            weights=[0.5, 0.5],
+            weights=[0.4, 0.6],
         )
         
         # CrossEncoder 재랭킹 추가 (최종 문서 수 증가)
         cross_encoder_model = self._get_cross_encoder_model()
-        compressor = CrossEncoderReranker(model=cross_encoder_model, top_n=25)
+        compressor = CrossEncoderReranker(model=cross_encoder_model, top_n=30)
         base_retriever = ContextualCompressionRetriever(
             base_retriever=self.rrf_retriever,
             base_compressor=compressor,
@@ -158,11 +160,10 @@ class StructuredRAGService:
 [답변 규칙]
 - 제공된 정보 외의 지식은 절대 사용하지 마세요.
 - 정보가 부족하면 "제공된 정보에서 찾을 수 없습니다."라고 답변하세요.
-- 대답에는 내부 데이터를 최대한 사용하고, 외부 데이터로 검토를 받으세요.
-- 가능한 최신 데이터를 우선적으로 사용하세요.
+- 대답에는 내부 데이터를 최대한 사용하고, 외부 데이터는 보조 검토용으로 사용하세요.
+- 충돌하거나 중복되는 정보가 있다면 **가장 최신의 정보**만 사용하고 나머지는 무시하세요.
 - 사용자의 질문 범위만 다루며, 관련 없는 설명은 생략하세요.
-- 순서를 나열하며 설명하고, 짧고 간결하게 핵심만 설명하세요.
-- 답변엔 간단한 출처를 함께 작성하세요.
+- 반드시 순서를 나열하며 설명하고, 간결하고 핵심적으로 답변하세요.
 
 [콘텐츠 관련]
 - 콘텐츠 관련 대답이 들어올 경우엔, 명성을 기준으로 대답하세요.
@@ -242,25 +243,7 @@ class StructuredRAGService:
                 return []
 
         def _search_web():
-            start = time.time()
-            try:
-                print("🔄 웹 검색 (Gemini) 시작...")
-                # 웹 검색은 캐시를 별도로 확인
-                cached_web_result = self.cache_manager.get_cached_search_result(query, 'gemini_search', character_info)
-                if cached_web_result:
-                    print("🔄 캐시된 Gemini 웹 검색 결과 사용")
-                    docs = cached_web_result
-                else:
-                    docs = self.web_searcher.search_with_grounding(query, character_info)
-                    self.cache_manager.save_search_result_to_cache(query, docs, 'gemini_search', character_info)
-                
-                times["web_search"] = time.time() - start
-                print(f"✅ 웹 검색 완료: {times['web_search']:.2f}초, {len(docs)}개 문서")
-                return docs
-            except Exception as e:
-                times["web_search"] = time.time() - start
-                print(f"❌ 웹 검색 오류 ({times['web_search']:.2f}초): {e}")
-                return []
+            return []
 
         # 병렬 검색 실행
         print("🚀 병렬 검색 시작 (내부 RAG + 웹)")

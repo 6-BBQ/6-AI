@@ -3,8 +3,11 @@ from __future__ import annotations
 import json
 import logging
 import re
+import hashlib
+import os
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
+from datetime import datetime
 
 from kiwipiepy import Kiwi
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -12,9 +15,10 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 # ─────────────────────────────────────────────────────────────
 # 1️⃣ 설정
 MERGED_DIR = Path("data/merged")      # 통합된 크롤링 결과 폴더
-SAVE_PATH = Path("data/processed_docs.jsonl")
-CHUNK_SIZE = 400
-CHUNK_OVERLAP = 100
+SAVE_PATH = Path("data/processed/processed_docs.jsonl")
+PROCESSED_CACHE = Path("data/processed/processed_cache.json")  # 처리된 파일 캐시
+CHUNK_SIZE = 1200
+CHUNK_OVERLAP = 150
 
 # 약어 → 정식 용어 매핑
 DNF_TERMS = {
@@ -32,7 +36,73 @@ logging.basicConfig(
 log = logging.getLogger("preprocess")
 
 # ─────────────────────────────────────────────────────────────
-# 2️⃣ 헬퍼
+# 2️⃣ 증분 처리 도구
+
+def get_file_hash(file_path: Path) -> str:
+    """파일의 MD5 해시 계산"""
+    hasher = hashlib.md5()
+    try:
+        with file_path.open('rb') as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                hasher.update(chunk)
+        return hasher.hexdigest()
+    except Exception:
+        return ""
+
+def load_processed_cache() -> Dict[str, str]:
+    """처리된 파일 캐시 로드 (file_path -> file_hash)"""
+    try:
+        if PROCESSED_CACHE.exists():
+            with PROCESSED_CACHE.open('r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception as e:
+        log.warning(f"캐시 로드 실패: {e}")
+    return {}
+
+def save_processed_cache(cache: Dict[str, str]) -> None:
+    """처리된 파일 캐시 저장"""
+    try:
+        PROCESSED_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        with PROCESSED_CACHE.open('w', encoding='utf-8') as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        log.warning(f"캐시 저장 실패: {e}")
+
+def get_new_and_updated_files(processed_cache: Dict[str, str]) -> List[Path]:
+    """새로운 파일과 업데이트된 파일 탐지"""
+    new_files = []
+    
+    for path in MERGED_DIR.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.suffix.lower() not in {".json", ".jsonl"}:
+            continue
+            
+        file_path_str = str(path.relative_to(MERGED_DIR))
+        current_hash = get_file_hash(path)
+        
+        # 새 파일이거나 해시가 변경된 경우
+        if file_path_str not in processed_cache or processed_cache[file_path_str] != current_hash:
+            new_files.append(path)
+            processed_cache[file_path_str] = current_hash
+    
+    return new_files
+
+def load_existing_processed_docs() -> Set[str]:
+    """기존 처리된 문서 ID 집합 로드"""
+    existing_ids = set()
+    try:
+        if SAVE_PATH.exists():
+            with SAVE_PATH.open('r', encoding='utf-8') as f:
+                for line in f:
+                    data = json.loads(line)
+                    existing_ids.add(data.get('id', ''))
+    except Exception as e:
+        log.warning(f"기존 문서 로드 실패: {e}")
+    return existing_ids
+
+# ─────────────────────────────────────────────────────────────
+# 3️⃣ 헬퍼
 kiwi = Kiwi()
 
 RE_HTML_TAG = re.compile(r"<[^>]*>")        # very naive stripper
@@ -58,24 +128,60 @@ def sent_tokenize(text: str) -> List[str]:
     return [s.text for s in spans]
 
 
-def load_raw_files() -> List[Dict[str, Any]]:
+def load_raw_files(incremental: bool = False) -> List[Dict[str, Any]]:
+    """로 파일 로드 (증분 처리 지원)"""
     docs: List[Dict[str, Any]] = []
-    for path in MERGED_DIR.rglob("*"):
-        if not path.is_file():
-            continue
+    
+    if incremental:
+        # 증분 모드: 새로운/업데이트된 파일만 처리
+        processed_cache = load_processed_cache()
+        new_files = get_new_and_updated_files(processed_cache)
+        
+        if not new_files:
+            log.info("🔄 증분 모드: 처리할 새 파일이 없습니다")
+            return []
+        
+        log.info(f"🔄 증분 모드: {len(new_files)}개 파일 처리 예정")
+        files_to_process = new_files
+        
+        # 캐시 업데이트
+        save_processed_cache(processed_cache)
+    else:
+        # 전체 모드: 모든 파일 처리
+        files_to_process = list(MERGED_DIR.rglob("*"))
+        files_to_process = [p for p in files_to_process if p.is_file()]
+        log.info(f"📋 전체 모드: {len(files_to_process)}개 파일 처리 예정")
+    
+    for path in files_to_process:
         if path.suffix.lower() in {".json", ".jsonl"}:
             with path.open(encoding="utf-8") as f:
                 try:
                     data = json.load(f)
-                    docs.extend(data if isinstance(data, list) else [data])
+                    if isinstance(data, list):
+                        # 새로운 타임스탬프 추가
+                        for item in data:
+                            if isinstance(item, dict):
+                                item['_file_source'] = str(path.relative_to(MERGED_DIR))
+                                item['_processed_at'] = datetime.now().isoformat()
+                        docs.extend(data)
+                    else:
+                        data['_file_source'] = str(path.relative_to(MERGED_DIR))
+                        data['_processed_at'] = datetime.now().isoformat()
+                        docs.append(data)
                 except json.JSONDecodeError:
                     log.warning("JSON decode failed: %s", path)
         else:
             # html / txt
             with path.open(encoding="utf-8") as f:
-                docs.append(
-                    {"title": path.stem, "body": f.read(), "source": str(path)}
-                )
+                doc_data = {
+                    "title": path.stem, 
+                    "body": f.read(), 
+                    "source": str(path),
+                    '_file_source': str(path.relative_to(MERGED_DIR)),
+                    '_processed_at': datetime.now().isoformat()
+                }
+                docs.append(doc_data)
+    
     return docs
 
 
@@ -110,10 +216,15 @@ def extract_metadata(doc: Dict[str, Any]) -> Dict[str, Any]:
 
 # ─────────────────────────────────────────────────────────────
 # 3️⃣ 메인 파이프라인
-def main() -> None:
+def main(incremental: bool = False) -> None:
     log.info("🔍 raw 문서 로드 중…")
-    raw_docs = load_raw_files()
+    raw_docs = load_raw_files(incremental=incremental)
     log.info("✅ %d개 로드 완료", len(raw_docs))
+
+    # 증분 모드에서 처리할 새 파일이 없으면 종료
+    if incremental and not raw_docs:
+        log.info("✅ 전처리 완료! (처리할 새 파일 없음)")
+        return
 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
@@ -172,4 +283,100 @@ def main() -> None:
 
 # ─────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    main()
+    import argparse
+    
+    parser = argparse.ArgumentParser(
+        description="던파 데이터 전처리 스크립트 (증분 처리 지원)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+예시:
+  # 전체 전처리 (기본 모드)
+  python preprocess.py
+  
+  # 증분 전처리 (새로운 데이터만)
+  python preprocess.py --incremental
+  
+  # 증분 전처리 + 상세 로그
+  python preprocess.py --incremental --verbose
+        """
+    )
+    
+    parser.add_argument(
+        "--incremental", 
+        action="store_true", 
+        default=True,
+        help="증분 전처리 모드 (기본값)"
+    )
+    
+    parser.add_argument(
+        "--full", 
+        action="store_true", 
+        help="전체 전처리 모드 (증분 무시)"
+    )
+    
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true", 
+        help="상세한 로그 출력"
+    )
+    
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=CHUNK_SIZE,
+        help=f"청크 크기 (기본: {CHUNK_SIZE})"
+    )
+    
+    parser.add_argument(
+        "--chunk-overlap",
+        type=int, 
+        default=CHUNK_OVERLAP,
+        help=f"청크 겹침 크기 (기본: {CHUNK_OVERLAP})"
+    )
+    
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="기존 처리 결과 강제 덮어쓰기"
+    )
+    
+    args = parser.parse_args()
+    
+    # 전체 모드 검사
+    if args.full:
+        args.incremental = False
+    
+    # 로그 레벨 설정
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+    
+    # 청크 설정 업데이트
+    CHUNK_SIZE = args.chunk_size
+    CHUNK_OVERLAP = args.chunk_overlap
+    
+    # 강제 모드 처리
+    if args.force:
+        if SAVE_PATH.exists():
+            SAVE_PATH.unlink()
+            log.info(f"🗑️ 기존 결과 파일 삭제: {SAVE_PATH}")
+        if PROCESSED_CACHE.exists():
+            PROCESSED_CACHE.unlink() 
+            log.info(f"🗑️ 기존 캐시 파일 삭제: {PROCESSED_CACHE}")
+    
+    # 시작 메시지
+    mode_emoji = "🔄" if args.incremental else "📋"
+    mode_name = "증분" if args.incremental else "전체"
+    log.info(f"{mode_emoji} {mode_name} 전처리 모드 시작")
+    log.info(f"   - 청크 크기: {CHUNK_SIZE}")
+    log.info(f"   - 청크 겹침: {CHUNK_OVERLAP}")
+    log.info(f"   - 입력 디렉토리: {MERGED_DIR}")
+    log.info(f"   - 출력 파일: {SAVE_PATH}")
+    
+    try:
+        main(incremental=args.incremental)
+        log.info("✅ 전처리 완료!")
+    except KeyboardInterrupt:
+        log.info("⚠️ 사용자에 의해 중단됨")
+    except Exception as e:
+        log.error(f"❌ 전처리 실패: {e}")
+        raise

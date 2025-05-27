@@ -272,32 +272,48 @@ def crawl_youtube(source: str, max_videos: int, visited_urls=None) -> list[dict]
 
 # 직접 실행 시 - 하이브리드 방식 (검색 + 신뢰 채널)
 if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="YouTube 던파 크롤러 (하이브리드 방식)")
+    parser.add_argument("--incremental", action="store_true", default=True, help="증분 크롤링 (기본값)")
+    parser.add_argument("--full", action="store_true", help="전체 크롤링 (증분 무시)")
+    parser.add_argument("--max-videos", type=int, default=3, help="소스당 최대 영상 수")
+    parser.add_argument("--search-query", type=str, default="던파 가이드", help="검색 쿼리")
+    args = parser.parse_args()
+    
     print("🎆 YouTube 하이브리드 크롤링 시작!")
     print("1️⃣ 검색 기반: 다양한 채널의 콘텐츠 수집")
     print("2️⃣ 신뢰 채널: 고품질 콘텐츠 보장")
+    print(f"📋 설정: 증분={args.incremental}, 최대영상={args.max_videos}, 검색어='{args.search_query}'")
     print()
     
-    # 기존 파일 초기화 (새로운 크롤링 시작)
-    if SAVE_PATH.exists():
-        print("🗑️ 기존 YouTube 크롤링 결과 초기화")
-        os.remove(SAVE_PATH)
+    # 전체 모드 검사
+    if args.full:
+        args.incremental = False
     
-    # 최대 영상 수 (명령줄 인수로 조정 가능)
-    max_videos_per_source = 3
-    if len(sys.argv) > 1:
+    # 증분 크롤링 지원
+    visited_urls = set()
+    if args.incremental:
         try:
-            max_videos_per_source = int(sys.argv[1])
-        except ValueError:
-            pass
+            # visited_urls.json 로드
+            sys.path.append(str(Path(__file__).parent))
+            from crawler import load_visited_urls, save_visited_urls
+            visited_urls = load_visited_urls()
+            print(f"🔄 기존 방문 URL {len(visited_urls)}개 로드됨")
+        except ImportError:
+            print("⚠️ crawler.py를 찾을 수 없어 새로 시작합니다")
+    else:
+        # 비증분 모드: 기존 파일 초기화
+        if SAVE_PATH.exists():
+            print("🗑️ 기존 YouTube 크롤링 결과 초기화")
+            os.remove(SAVE_PATH)
     
     all_results = []
-    visited_urls = set()  # 중복 제거용
     
     # 1️⃣ 검색 기반 크롤링 (다양성 확보)
-    search_query = "던파 가이드"
-    print(f"🔍 검색 기반 크롤링: '{search_query}' (최대 {max_videos_per_source}개)")
+    print(f"🔍 검색 기반 크롤링: '{args.search_query}' (최대 {args.max_videos}개)")
     try:
-        search_results = crawl_youtube_search(search_query, max_videos_per_source, visited_urls)
+        search_results = crawl_youtube_search(args.search_query, args.max_videos, visited_urls)
         all_results.extend(search_results)
         save_results_append(search_results, "검색")
         print(f"   ✅ 검색 결과: {len(search_results)}개 수집")
@@ -311,18 +327,27 @@ if __name__ == "__main__":
     ]
     
     for i, channel_url in enumerate(trusted_channels, 1):
-        print(f"🎥 신뢰 채널 {i}: {channel_url.split('/')[-1]} (최대 {max_videos_per_source}개)")
+        print(f"🎥 신뢰 채널 {i}: {channel_url.split('/')[-1]} (최대 {args.max_videos}개)")
         try:
-            channel_results = crawl_youtube_channel(channel_url, max_videos_per_source, visited_urls)
+            channel_results = crawl_youtube_channel(channel_url, args.max_videos, visited_urls)
             all_results.extend(channel_results)
             save_results_append(channel_results, f"채널{i}")
             print(f"   ✅ 채널 {i} 결과: {len(channel_results)}개 수집")
         except Exception as e:
             print(f"   ⚠️ 채널 {i} 오류: {e}")
     
+    # 증분 크롤링인 경우 visited_urls 저장
+    if args.incremental:
+        try:
+            save_visited_urls(visited_urls)
+            print(f"💾 방문 URL {len(visited_urls)}개 저장됨")
+        except NameError:
+            print("⚠️ visited_urls 저장 실패")
+    
     # 최종 결과
     print()
     print(f"🎆 하이브리드 크롤링 완료!")
     print(f"📊 총 {len(all_results)}개 영상 수집 (자막 있는 영상만)")
-    print(f"🔄 방문한 URL: {len(visited_urls)}개 (중복 제거)")
+    print(f"🔄 방문한 URL: {len(visited_urls)}개 (증분: {args.incremental})")
     print(f"💾 결과 저장 위치: {SAVE_PATH}")
+    print(f"✅ YouTube 크롤링 완료: {len(all_results)}개 수집")

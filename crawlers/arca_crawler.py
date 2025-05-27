@@ -19,7 +19,7 @@ SAVE_PATH = "data/raw/arca_raw.json"
 FILTER_KEYWORDS = [
     "명성", "상급 던전", "스펙업", "장비", "파밍", "뉴비", "융합석", "중천", "세트",
     "가이드", "에픽", "태초", "레기온", "레이드", "현질", "세리아", "마법부여", 
-    "스킬트리", "종말의 숭배자"
+    "스킬트리", "종말의 숭배자", "베누스", "나벨"
 ]
 
 # 제외 키워드
@@ -29,7 +29,7 @@ EXCLUDE_KEYWORDS = [
 ]
 
 # 품질 점수 임계값 (이 점수 이상인 게시글만 저장)
-QUALITY_THRESHOLD = 38  # 아카라이브는 내용이 중간 정도의 길이가 많음
+QUALITY_THRESHOLD = 33  # 아카라이브는 내용이 중간 정도의 길이가 많음
 # ──────────────────────────────────────────────
 
 # 날짜 확인 함수
@@ -196,7 +196,7 @@ def crawl_post_content(post_url, visited_urls, depth=0, max_depth=2):
     return results
 
 # 📌 4. 전체 크롤링 실행
-def crawl_arca(max_pages=2, max_depth=2, visited_urls=None):
+def crawl_arca(max_pages=2, max_depth=2, visited_urls=None, is_incremental=True):
     """아카라이브 전체 크롤링 실행"""
     # 증분 크롤링을 위한 방문 URL 관리
     if visited_urls is None:
@@ -241,12 +241,9 @@ def crawl_arca(max_pages=2, max_depth=2, visited_urls=None):
         elapsed_time = time.time() - start_time
         avg_time_per_post = elapsed_time / len(results) if results else 0
 
-        # 결과 저장
-        save_dir = Path(SAVE_PATH).parent
-        save_dir.mkdir(parents=True, exist_ok=True)
-        
-        with open(SAVE_PATH, "w", encoding="utf-8") as f:
-            json.dump(results, f, ensure_ascii=False, indent=2)
+        # 결과 저장 (증분 처리 지원)
+        from utils import save_arca_data
+        save_arca_data(results, append=is_incremental)
         
     except Exception as e:
         pass
@@ -256,4 +253,4 @@ def crawl_arca(max_pages=2, max_depth=2, visited_urls=None):
 # 스크립트 직접 실행 시
 if __name__ == "__main__":
     # 테스트 실행
-    crawl_arca(max_pages=2, max_depth=2)
+    crawl_arca(max_pages=10, max_depth=0)
