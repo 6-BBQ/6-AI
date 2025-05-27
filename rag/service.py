@@ -304,6 +304,13 @@ class StructuredRAGService:
         print(f"✅ LLM 답변 생성 완료 ({llm_elapsed_time:.2f}초)")
         print(f"[INFO] 총 처리 시간: {total_elapsed_time:.2f}초")
         
+        # 생성된 답변 출력
+        print("\n" + "="*50)
+        print("[답변]")
+        print("="*50)
+        print(llm_response)
+        print("="*50 + "\n")
+        
         # FastAPI 엔드포인트에서 기대하는 키로 반환값 구성
         return {
             "result": llm_response,
