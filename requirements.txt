@@ -1,21 +1,61 @@
-# API 및 기본 의존성
-openai>=1.0.0
-python-dotenv>=1.0.0
-requests>=2.28.0
+# ==========================================
+# 6-AI 프로젝트 Python 의존성 패키지 목록
+# ==========================================
 
-# 벡터 저장소 및 임베딩
+# ──────────── 기본 Python 패키지 ────────────
+python-dotenv>=1.0.0
+pathlib>=1.0.1
+
+# ──────────── FastAPI & 웹서버 ────────────
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+
+# ──────────── JWT 인증 ────────────
+pyjwt>=2.8.0
+
+# ──────────── LLM & AI 프레임워크 ────────────
+# LangChain 코어
 langchain>=0.1.0
-langchain-openai>=0.0.5
 langchain-community>=0.0.13
+
+# Google Gemini (LLM 전용)
+langchain-google-genai>=1.0.0
+
+# HuggingFace 임베딩 (한국어 특화)
+langchain-huggingface>=0.0.3
+
+# ──────────── 벡터 데이터베이스 ────────────
 langchain-chroma>=0.0.1
 chromadb>=0.4.22
 
-# 크롤링 관련 도구
+# ──────────── 임베딩 & 트랜스포머 ────────────
+# HuggingFace 임베딩 & 트랜스포머
+sentence-transformers>=2.7.0  # BGE 모델 지원
+transformers>=4.40.0  # BGE-M3 지원
+torch>=2.0.0
+safetensors>=0.4.0   # 모델 로딩 최적화
+accelerate>=0.20.0   # GPU 가속
+
+# ──────────── 한국어 NLP ────────────
+kiwipiepy>=0.18.0
+
+# ──────────── 크롤링 & 웹 스크래핑 ────────────
+requests>=2.28.0
 beautifulsoup4>=4.12.2
 cloudscraper>=1.2.71
+selenium>=4.15.0
+
+# ──────────── YouTube 처리 ────────────
+yt-dlp>=2024.11.0
 youtube-transcript-api>=0.6.1
 
-# 데이터 처리 및 유틸리티
-pillow>=10.0.0
-easyocr>=1.7.1
+# ──────────── 데이터 처리 ────────────
 numpy>=1.24.0
+pandas>=2.0.0
+
+# ──────────── Pydantic (호환성) ────────────
+pydantic>=2.0.0,<3.0.0
+
+# ──────────── 모델 다운로드 & 캐싱 최적화 ────────────
+huggingface-hub>=0.20.0  # 모델 다운로드 최적화
