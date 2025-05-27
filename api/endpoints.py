@@ -150,13 +150,13 @@ async def chat_endpoint(request: ChatRequest): # ChatRequest 모델 사용
             answer=rag_result.get("result", "답변을 생성하지 못했습니다."), # result 키가 없을 경우 대비
             sources=sources,
             execution_time=rag_result.get("execution_times", {}).get("total", 0.0),
-            used_web_search=rag_result.get("used_web_search", False),
+
             internal_docs=convert_docs_to_dict(rag_result.get("internal_docs")),
-            web_docs=convert_docs_to_dict(rag_result.get("web_docs")),
+
             enhanced_query=rag_result.get("enhanced_query"),
             execution_times=rag_result.get("execution_times"),
             internal_context=rag_result.get("internal_context_provided_to_llm"), # RAGService 반환값 키 확인 필요
-            web_context=rag_result.get("web_context_provided_to_llm") # RAGService 반환값 키 확인 필요
+
         )
         
         print(f"[INFO] RAG 처리 완료: {response.execution_time:.2f}초")

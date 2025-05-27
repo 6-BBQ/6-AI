@@ -4,7 +4,6 @@
 from __future__ import annotations
 import os
 import time
-from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 from dotenv import load_dotenv
@@ -20,15 +19,11 @@ from langchain.retrievers import EnsembleRetriever, ContextualCompressionRetriev
 from langchain.retrievers.document_compressors import CrossEncoderReranker
 from langchain.prompts import PromptTemplate
 
-# Google Gen AI SDK
-from google import genai
-
 # 분리된 유틸리티들
 from .cache_utils import CacheManager
 from .text_utils import TextProcessor
 from .retrievers import MetadataAwareRetriever
 from .search_factory import SearcherFactory
-from .web_search import WebSearcher
 
 load_dotenv()
 
@@ -85,9 +80,6 @@ class StructuredRAGService:
             temperature=0
         )
         
-        self.gemini_client = genai.Client(api_key=self.gemini_api_key)
-        self.web_searcher = WebSearcher(self.gemini_client)
-        
         # 임베딩 함수 변경 (한국어 성능 향상)
         print("✅ 임베딩 사용 - 한국어 성능 최적화")
         self.embedding_fn = HuggingFaceEmbeddings(
@@ -139,8 +131,8 @@ class StructuredRAGService:
 
     def _setup_llm_and_prompt(self):
         """LLM 및 프롬프트 설정 (던파 전문가 버전)"""
-        self.hybrid_prompt = PromptTemplate(
-            input_variables=["internal_context", "web_context", "question", "character_info", "conversation_history"],
+        self.prompt = PromptTemplate(
+            input_variables=["internal_context", "question", "character_info", "conversation_history"],
             template="""
 당신은 던전앤파이터 전문 스펙업 가이드 챗봇입니다.  
 ※ 반드시 아래 제공된 정보만 활용해 답변하세요.
@@ -154,13 +146,10 @@ class StructuredRAGService:
 [내부 데이터베이스]
 {internal_context}
 
-[웹 검색 결과]
-{web_context}
-
 [답변 규칙]
 - 제공된 정보 외의 지식은 절대 사용하지 마세요.
 - 정보가 부족하면 "제공된 정보에서 찾을 수 없습니다."라고 답변하세요.
-- 대답에는 내부 데이터를 최대한 사용하고, 외부 데이터는 보조 검토용으로 사용하세요.
+- 대답에는 내부 데이터를 최대한 사용하여 답변하세요.
 - 충돌하거나 중복되는 정보가 있다면 **가장 최신의 정보**만 사용하고 나머지는 무시하세요.
 - 사용자의 질문 범위만 다루며, 관련 없는 설명은 생략하세요.
 - 반드시 순서를 나열하며 설명하고, 간결하고 핵심적으로 답변하세요.
@@ -217,17 +206,17 @@ class StructuredRAGService:
         
         return "\n".join(context_parts) if context_parts else "이전 대화 기록이 없습니다."
 
-    def _hybrid_search(self, query: str, character_info: Optional[Dict]) -> Dict[str, Any]:
-        """하이브리드 검색 (내부 + 웹)"""
+    def rag_search(self, query: str, character_info: Optional[Dict]) -> Dict[str, Any]:
+
         # 캐시 확인
-        cached_result = self.cache_manager.get_cached_search_result(query, 'hybrid_search', character_info)
+        cached_result = self.cache_manager.get_cached_search_result(query, 'rag_search', character_info)
         if cached_result:
-            print("🔄 캐시된 하이브리드 검색 결과 사용")
+            print("🔄 캐시된 RAG 검색 결과 사용")
             return cached_result
 
         search_start_time = time.time()
         enhanced_query = self.text_processor.enhance_query_with_character(query, character_info)
-        times = {"internal_search": 0.0, "web_search": 0.0, "total_search": 0.0}
+        times = {"internal_search": 0.0}
 
         def _search_internal():
             start = time.time()
@@ -242,38 +231,25 @@ class StructuredRAGService:
                 print(f"❌ 내부 RAG 검색 오류 ({times['internal_search']:.2f}초): {e}")
                 return []
 
-        def _search_web():
-            return []
-
-        # 병렬 검색 실행
-        print("🚀 병렬 검색 시작 (내부 RAG + 웹)")
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            internal_future = executor.submit(_search_internal)
-            web_future = executor.submit(_search_web)
-            internal_docs = internal_future.result()
-            web_docs = web_future.result()
         
-        times["total_search"] = time.time() - search_start_time
-        print(f"🎯 하이브리드 검색 완료 - 총 {times['total_search']:.2f}초")
+        internal_docs = _search_internal()
+        
+        times["internal_search"] = time.time() - search_start_time
+        print(f"🎯 내부 검색 완료 - 총 {times['internal_search']:.2f}초")
 
         # 검색 결과를 컨텍스트 문자열로 변환
         internal_context_str = self.text_processor.format_docs_to_context_string(internal_docs, "내부")
-        web_context_str = self.text_processor.format_web_search_docs_to_context_string(web_docs)
         
         # 결과 구성
         result = {
-            "all_docs": internal_docs + web_docs,
             "internal_docs": internal_docs,
-            "web_docs": web_docs,
             "internal_context_provided_to_llm": internal_context_str,
-            "web_context_provided_to_llm": web_context_str,
-            "used_web_search": bool(web_docs),
             "enhanced_query": enhanced_query,
             "search_times": times
         }
         
         # 캐시에 저장
-        self.cache_manager.save_search_result_to_cache(query, result, 'hybrid_search', character_info)
+        self.cache_manager.save_search_result_to_cache(query, result, 'rag_search', character_info)
         return result
 
     def get_answer(self, query: str, character_info: Optional[Dict] = None, conversation_history: Optional[List[Dict]] = None) -> Dict[str, Any]:
@@ -302,16 +278,15 @@ class StructuredRAGService:
         # 이전 대화 기록을 LLM용 컨텍스트로 변환
         conversation_context_for_llm = self._build_conversation_context_for_llm(conversation_history)
         
-        # 하이브리드 검색 수행
-        search_results = self._hybrid_search(query, character_info)
+        # 검색 수행
+        search_results = self.rag_search(query, character_info)
         
         # LLM 답변 생성
         llm_start_time = time.time()
         print("🔄 LLM 답변 생성 중...")
         
-        formatted_prompt = self.hybrid_prompt.format(
+        formatted_prompt = self.prompt.format(
             internal_context=search_results["internal_context_provided_to_llm"],
-            web_context=search_results["web_context_provided_to_llm"],
             question=query,
             character_info=char_context_for_llm,
             conversation_history=conversation_context_for_llm
@@ -332,10 +307,7 @@ class StructuredRAGService:
         # FastAPI 엔드포인트에서 기대하는 키로 반환값 구성
         return {
             "result": llm_response,
-            "source_documents": search_results["all_docs"],
-            "used_web_search": search_results["used_web_search"],
             "internal_docs": search_results["internal_docs"],
-            "web_docs": search_results["web_docs"],
             "enhanced_query": search_results["enhanced_query"],
             "execution_times": {
                 "total": total_elapsed_time,
@@ -343,7 +315,6 @@ class StructuredRAGService:
                 "search": search_results["search_times"]
             },
             "internal_context": search_results["internal_context_provided_to_llm"],
-            "web_context": search_results["web_context_provided_to_llm"]
         }
 
 

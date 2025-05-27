@@ -38,37 +38,7 @@ class TextProcessor:
             context_parts.append(content)
         return "\n\n".join(context_parts)
     
-    @staticmethod
-    def format_web_search_docs_to_context_string(web_docs: List[Document]) -> str:
-        """웹 검색 문서들을 컨텍스트 문자열로 변환"""
-        web_context_parts = []
-        
-        # 메인 검색 결과 찾기
-        main_content_doc = next(
-            (doc for doc in web_docs if doc.metadata.get("source") == "gemini_search"), 
-            None
-        )
-        if main_content_doc:
-            web_context_parts.append(
-                f"[Gemini 웹 검색 결과 - 2025년 최신 정보]\n{main_content_doc.page_content}"
-            )
-        
-        # 참고 출처 정리
-        source_docs = [
-            doc for doc in web_docs 
-            if doc.metadata.get("source") in ["grounding_source", "search_suggestions"]
-        ]
-        if source_docs:
-            web_context_parts.append("[참고 출처]")
-            for i, doc in enumerate(source_docs):
-                title = doc.metadata.get("title", f"출처 {i+1}")
-                url = doc.metadata.get("url", "")
-                entry = f"출처 {i+1}: {title}"
-                if url: 
-                    entry += f" - {url}"
-                web_context_parts.append(entry)
-        
-        return "\n\n".join(web_context_parts) if web_context_parts else "웹 검색 결과 없음."
+
     
     @staticmethod
     def build_character_context_for_llm(character_info: Optional[Dict]) -> str:

@@ -30,7 +30,7 @@ character_info = {
 }
 
 # 테스트용 쿼리
-query = "내 스펙에서 어떻게 해야 스펙업 할 수 있을까?"
+query = "내 칭호, 크리쳐, 오라는 종결급이야?"
 
 # 이전 대화 기록 (테스트용)
 before_question_list = [
@@ -80,10 +80,6 @@ try:
             # 추가 정보 출력
             if result.get('execution_time'):
                 print(f"⏱️  실행 시간: {result['execution_time']:.2f}초")
-            if result.get('used_web_search'):
-                print("🌐 웹 검색 사용됨")
-            if result.get('sources'):
-                print(f"📚 참고 출처: {len(result['sources'])}개")
             
             # 내부 검색 문서 제목
             if result.get('internal_docs'):
@@ -91,21 +87,6 @@ try:
                 for i, doc in enumerate(result['internal_docs'], 1):
                     title = doc.get('metadata', {}).get('title', 'N/A')
                     print(f"  {i}. {title}")
-                print()
-            
-            # 외부 검색 문서 제목 (처음 2개 제외 - Gemini 검색 결과, 검색 제안)
-            if result.get('web_docs') and len(result['web_docs']) > 2:
-                actual_web_docs = result['web_docs'][2:]  # 3번째부터 가져오기
-                print(f"🌐 외부 검색 문서 ({len(actual_web_docs)}개):")
-                for i, doc in enumerate(actual_web_docs, 1):
-                    title = doc.get('metadata', {}).get('title', 'N/A')
-                    url = doc.get('metadata', {}).get('url', 'N/A')
-                    print(f"  {i}. {title}")
-                    if url != 'N/A':
-                        print(f"     🔗 {url}")
-                print()
-            elif result.get('web_docs'):
-                print("🌐 외부 검색 문서: 실제 웹사이트 검색 결과 없음")
                 print()
                 
             # 디버깅 정보 (있는 경우만 출력)
