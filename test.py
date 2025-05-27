@@ -1,10 +1,11 @@
 import requests
+from test_jwt import create_jwt_token
 
 # 서버 주소
 API_URL = "http://localhost:8000/api/df/chat" # main.py의 prefix와 endpoints.py 라우터 경로
 
 # 테스트용 JWT 토큰 (새로운 예시 데이터에서 가져온 것)
-jwt_token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0IiwiYXV0aCI6IlVTRVIiLCJleHAiOjE3NDgyNTIzNjZ9.IZCwEVHJYWTntgL76BtwqS-PT9wga7MJgd_RlpcP8ho"
+jwt_token = create_jwt_token()
 
 # 테스트용 캐릭터 정보 (파이썬 딕셔너리)
 character_info = {
@@ -28,8 +29,8 @@ character_info = {
   "auraName": "삼신기의 불꽃"
 }
 
-# 테스트용 쿼리 (직업 매칭 테스트용)
-query = "현시점 종결 마부는 뭐야?"
+# 테스트용 쿼리
+query = "내 스펙에서 어떻게 해야 스펙업 할 수 있을까?"
 
 # 이전 대화 기록 (테스트용)
 before_question_list = [

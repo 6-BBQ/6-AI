@@ -44,6 +44,7 @@ def run_crawler(crawler_func, *args, **kwargs):
         elapsed = time.time() - start_time
         return result
     except Exception as e:
+        print(f"⚠️ {func_name} 크롤링 오류: {e}")
         return []
 
 def main():
@@ -51,6 +52,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=textwrap.dedent("""\
             ▶ 던파 스펙업 가이드용 통합 크롤링 스크립트
+            
+            기본적으로 증분 크롤링을 수행합니다.
+            전체 크롤링이 필요한 경우 --full 옵션을 사용하세요.
         """)
     )
     parser.add_argument("--pages", type=int, default=10, help="각 게시판 최대 페이지 수")
@@ -67,7 +71,8 @@ def main():
                         help="채널에서 가져올 최신 영상 개수")
     parser.add_argument("--parallel", action="store_true", help="병렬 처리 활성화")
     parser.add_argument("--workers", type=int, default=4, help="병렬 작업자 수")
-    parser.add_argument("--incremental", action="store_true", help="증분 크롤링 활성화")
+    parser.add_argument("--incremental", action="store_true", default=True, help="증분 크롤링 (기본값)")
+    parser.add_argument("--full", action="store_true", help="전체 크롤링 (증분 무시)")
     parser.add_argument("--clear-history", action="store_true", help="방문 기록 초기화")
     parser.add_argument("--sources", type=str, default="all", 
                         help="크롤링할 소스 (콤마로 구분: official,dc,arca,youtube,all)")
@@ -76,6 +81,10 @@ def main():
     parser.add_argument("--merge", action="store_true", help="모든 결과를 하나의 파일로 병합")
 
     args = parser.parse_args()
+    
+    # 전체 모드 검사
+    if args.full:
+        args.incremental = False
     
     # 방문 기록 초기화 옵션
     if args.clear_history:
@@ -98,7 +107,11 @@ def main():
     print(f"   - 증분 크롤링 = {args.incremental}")
     
     # 증분 크롤링을 위한 방문 URL 로드
-    visited_urls = load_visited_urls() if args.incremental else set()
+    if args.incremental:
+        visited_urls = load_visited_urls()
+    else:
+        # 전체 모드일 때는 빈 집합으로 시작 (모든 URL 재처리)
+        visited_urls = set()
     
     # 크롤링할 소스 결정
     sources = args.sources.lower().split(',')
@@ -107,14 +120,17 @@ def main():
     # 크롤링 작업 정의
     crawl_tasks = []
     
+    # 증분 모드 설정
+    is_incremental = args.incremental
+    
     if crawl_all or "official" in sources:
-        crawl_tasks.append(("공홈", lambda: run_crawler(crawl_df, args.pages, args.depth, visited_urls)))
+        crawl_tasks.append(("공홈", lambda: run_crawler(crawl_df, args.pages, args.depth, visited_urls, is_incremental)))
     
     if crawl_all or "dc" in sources:
-        crawl_tasks.append(("디시", lambda: run_crawler(crawl_dcinside, args.pages, args.depth, visited_urls)))
+        crawl_tasks.append(("디시", lambda: run_crawler(crawl_dcinside, args.pages, args.depth, visited_urls, is_incremental)))
     
     if crawl_all or "arca" in sources:
-        crawl_tasks.append(("아카", lambda: run_crawler(crawl_arca, args.pages, args.depth, visited_urls)))
+        crawl_tasks.append(("아카", lambda: run_crawler(crawl_arca, args.pages, args.depth, visited_urls, is_incremental)))
     
     if crawl_all or "youtube" in sources:
         def youtube_crawl_task():
@@ -122,32 +138,54 @@ def main():
             if args.yt_mode in ["hybrid", "search"]:
                 # 검색 기반 크롤링
                 from youtube_crawler import crawl_youtube_search
-                search_results = run_crawler(crawl_youtube_search, args.yt_query, args.yt_max // 2 if args.yt_mode == "hybrid" else args.yt_max, visited_urls)
+                search_results = run_crawler(crawl_youtube_search, args.yt_query, args.yt_max if args.yt_mode == "hybrid" else args.yt_max, visited_urls)
                 youtube_results.extend(search_results)
                 
             if args.yt_mode in ["hybrid", "channel"]:
-                # 채널 기반 크롤링
+                # 채널 기반 크롤링, 임시로 꺼둠
                 from youtube_crawler import crawl_youtube_channel
-                channel_results = run_crawler(crawl_youtube_channel, args.yt_channel, args.yt_max // 2 if args.yt_mode == "hybrid" else args.yt_max, visited_urls)
+                channel_results = run_crawler(crawl_youtube_channel, args.yt_channel, 0 if args.yt_mode == "hybrid" else args.yt_max, visited_urls)
                 youtube_results.extend(channel_results)
             
-            # YouTube 결과를 개별 파일에 저장 (중복 제거 된 상태)
-            from youtube_crawler import save_results_append
+            # YouTube 결과를 개별 파일에 저장 (증분 모드 지원)
             if youtube_results:
-                # 기존 파일 초기화 후 저장
                 youtube_raw_path = "data/raw/youtube_raw.json"
-                import os
-                if os.path.exists(youtube_raw_path):
-                    os.remove(youtube_raw_path)
                 
-                # 결과 저장
-                import json
-                from pathlib import Path
-                save_dir = Path(youtube_raw_path).parent
-                save_dir.mkdir(parents=True, exist_ok=True)
-                with open(youtube_raw_path, "w", encoding="utf-8") as f:
-                    json.dump(youtube_results, f, ensure_ascii=False, indent=2)
-                print(f"💾 YouTube 통합 결과 저장: {len(youtube_results)}개")
+                # 디렉토리 생성
+                os.makedirs(os.path.dirname(youtube_raw_path), exist_ok=True)
+                
+                try:
+                    if args.incremental and os.path.exists(youtube_raw_path):
+                        # 증분 모드: 기존 데이터 로드 후 병합
+                        with open(youtube_raw_path, "r", encoding="utf-8") as f:
+                            existing_data = json.load(f)
+                        
+                        # URL 중복 제거를 위한 기존 URL 집합
+                        existing_urls = {item.get('url') for item in existing_data if isinstance(item, dict) and 'url' in item}
+                        
+                        # 새로운 데이터 중 중복되지 않는 것만 추가
+                        new_data = [item for item in youtube_results if item.get('url') not in existing_urls]
+                        
+                        if new_data:
+                            final_data = existing_data + new_data
+                            print(f"💾 YouTube 증분 저장: 기존 {len(existing_data)}개 + 새로운 {len(new_data)}개")
+                        else:
+                            final_data = existing_data
+                            print(f"💾 YouTube: 새로운 데이터 없음 (모두 중복)")
+                    else:
+                        # 전체 모드 또는 파일이 없는 경우: 전체 저장
+                        final_data = youtube_results
+                        print(f"💾 YouTube 전체 저장: {len(youtube_results)}개")
+                    
+                    # 파일 저장
+                    with open(youtube_raw_path, "w", encoding="utf-8") as f:
+                        json.dump(final_data, f, ensure_ascii=False, indent=2)
+                        
+                except Exception as e:
+                    print(f"⚠️ YouTube 데이터 저장 실패: {e}")
+                    # 실패 시 그냥 새 데이터만 저장
+                    with open(youtube_raw_path, "w", encoding="utf-8") as f:
+                        json.dump(youtube_results, f, ensure_ascii=False, indent=2)
                 
             return youtube_results
             
@@ -205,7 +243,7 @@ def main():
         with open(merged_file, "w", encoding="utf-8") as f:
             json.dump(all_results, f, ensure_ascii=False, indent=2)
     
-    # 증분 크롤링인 경우 방문 URL 저장
+    # 증분 크롤링인 경우만 방문 URL 저장
     if args.incremental:
         save_visited_urls(visited_urls)
     

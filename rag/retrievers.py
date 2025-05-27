@@ -31,7 +31,7 @@ class MetadataAwareRetriever:
             # 통합된 콘텐츠 품질 점수 활용 (이미 사이트별 정규화+신선도+인기도 반영)
             try: 
                 quality = float(meta.get("quality_score", 0.0))
-                score += quality * 0.12  # 크롤링 시점 품질 점수 반영
+                score += quality * 0.2  # 크롤링 시점 품질 점수 반영
             except ValueError: 
                 pass
             
