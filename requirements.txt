@@ -1,10 +1,9 @@
 # ==========================================
-# EC2 배포용 Python 의존성 패키지 목록
+# 6-AI 프로젝트 Python 의존성 패키지 목록
 # ==========================================
 
 # ──────────── 기본 Python 패키지 ────────────
 python-dotenv>=1.0.0
-requests>=2.28.0
 pathlib>=1.0.1
 
 # ──────────── FastAPI & 웹서버 ────────────
@@ -16,16 +15,12 @@ python-multipart>=0.0.6
 pyjwt>=2.8.0
 
 # ──────────── LLM & AI 프레임워크 ────────────
-# OpenAI (백업용)
-openai>=1.0.0
+# LangChain 코어
 langchain>=0.1.0
-langchain-openai>=0.0.5
 langchain-community>=0.0.13
 
 # Google Gemini (LLM 전용)
 langchain-google-genai>=1.0.0
-google-generativeai>=0.3.0
-google-genai>=0.1.0
 
 # HuggingFace 임베딩 (한국어 특화)
 langchain-huggingface>=0.0.3
@@ -34,45 +29,22 @@ langchain-huggingface>=0.0.3
 langchain-chroma>=0.0.1
 chromadb>=0.4.22
 
-# ──────────── 검색 & 임베딩 ────────────
-# BM25 검색
-rank-bm25>=0.2.2
-
+# ──────────── 임베딩 & 트랜스포머 ────────────
 # HuggingFace 임베딩 & 트랜스포머
-sentence-transformers>=2.7.0  # BGE 모델 지원을 위해 최신 버전
+sentence-transformers>=2.7.0  # BGE 모델 지원
 transformers>=4.40.0  # BGE-M3 지원
 torch>=2.0.0
-torchvision>=0.15.0  # CUDA 지원
-torchaudio>=2.0.0   # 오디오 처리 (선택적)
-
-# BGE 모델 특화 패키지
-FlagEmbedding>=1.2.0  # BGE 모델 최적화
 safetensors>=0.4.0   # 모델 로딩 최적화
 accelerate>=0.20.0   # GPU 가속
-
-# ──────────── CUDA & GPU 지원 ────────────
-# CUDA 11.8 지원 (GPU 사용시)
-# torch는 위에서 이미 설치됨
-# 추가 CUDA 툴킷 (필요시 주석 해제)
-# nvidia-ml-py>=12.0.0
 
 # ──────────── 한국어 NLP ────────────
 kiwipiepy>=0.18.0
 
-# ──────────── 텍스트 유사도 ────────────
-rapidfuzz>=3.0.0
-
 # ──────────── 크롤링 & 웹 스크래핑 ────────────
+requests>=2.28.0
 beautifulsoup4>=4.12.2
 cloudscraper>=1.2.71
 selenium>=4.15.0
-
-# YouTube API
-youtube-transcript-api>=0.6.1
-
-# ──────────── 이미지 처리 & OCR ────────────
-pillow>=10.0.0
-easyocr>=1.7.1
 
 # ──────────── YouTube 처리 ────────────
 yt-dlp>=2024.11.0
@@ -81,55 +53,9 @@ youtube-transcript-api>=0.6.1
 # ──────────── 데이터 처리 ────────────
 numpy>=1.24.0
 pandas>=2.0.0
-scipy>=1.11.0  # 임베딩 연산 최적화
-
-# ──────────── 비동기 처리 ────────────
-aiohttp>=3.8.0
-
-# ──────────── 유틸리티 ────────────
-tqdm>=4.65.0
-loguru>=0.7.0
 
 # ──────────── Pydantic (호환성) ────────────
 pydantic>=2.0.0,<3.0.0
 
-# ──────────── EC2 배포 전용 추가 패키지 ────────────
-# 시스템 모니터링
-psutil>=5.9.0
-
-# 프로세스 관리 (Gunicorn 대안)
-gunicorn>=21.2.0
-
-# 환경 설정
-click>=8.1.0
-
-# 로깅 강화
-structlog>=23.1.0
-
-# 메모리 효율성
-memory-profiler>=0.61.0
-
-# ──────────── 성능 최적화 패키지 ────────────
-# 더 빠른 JSON 처리
-orjson>=3.9.0
-
-# 더 빠른 HTTP 클라이언트
-httpx>=0.25.0
-
-# 임베딩 계산 최적화
-onnx>=1.15.0  # ONNX 런타임 지원
-onnxruntime-gpu>=1.16.0  # GPU 가속 ONNX (CUDA 환경)
-faiss-gpu>=1.7.4  # GPU 가속 벡터 검색 (선택적)
-
-# ──────────── 개발/테스트 전용 (운영시 제거 가능) ────────────
-# 테스트 프레임워크
-pytest>=7.4.0
-pytest-asyncio>=0.21.0
-
-# 코드 포맷팅
-black>=23.0.0
-isort>=5.12.0
-
 # ──────────── 모델 다운로드 & 캐싱 최적화 ────────────
 huggingface-hub>=0.20.0  # 모델 다운로드 최적화
-datasets>=2.16.0  # 데이터셋 처리 (선택적)

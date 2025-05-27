@@ -9,8 +9,6 @@ class SourceDocument(BaseModel):
 # ────────────── 실행 시간 모델 ──────────────
 class SearchTimes(BaseModel):
     internal_search: float = Field(..., description="내부 검색 시간")
-    web_search: float = Field(..., description="웹 검색 시간")
-    total_search: float = Field(..., description="검색 총 소요 시간")
 
 
 class ExecutionTimes(BaseModel):
@@ -42,16 +40,16 @@ class ChatResponse(BaseModel):
 
     character_specific_advice: Optional[str] = Field(None, description="캐릭터 맞춤 조언")
     execution_time: float = Field(..., description="총 실행 시간(초)")
-    used_web_search: bool = Field(default=False, description="웹 검색 사용 여부")
+
 
     # 디버깅 정보
     internal_docs: List[Dict[str, Any]] = Field(default_factory=list)
-    web_docs: List[Dict[str, Any]] = Field(default_factory=list)
+
     enhanced_query: Optional[str] = None
 
     execution_times: Optional[Dict[str, Any]] = Field(None, description="상세 실행 시간")
     internal_context: Optional[str] = None
-    web_context: Optional[str] = None
+
 
 
 class ErrorResponse(BaseModel):

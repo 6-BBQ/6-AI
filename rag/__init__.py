@@ -16,7 +16,6 @@ from .cache_utils import CacheManager
 from .text_utils import TextProcessor
 from .retrievers import MetadataAwareRetriever as NewMetadataAwareRetriever
 from .search_factory import SearcherFactory
-from .web_search import WebSearcher
 
 __all__ = [
     # 새로운 구조화된 RAG 서비스
@@ -28,8 +27,7 @@ __all__ = [
     'CacheManager',
     'TextProcessor',
     'NewMetadataAwareRetriever',
-    'SearcherFactory',
-    'WebSearcher',
+    'SearcherFactory'
 ]
 
 # 기존 함수들을 그대로 유지 (하위 호환성)
