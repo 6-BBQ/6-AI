@@ -30,7 +30,7 @@ EXCLUDE_KEYWORDS = [
 ]
 
 # 품질 점수 임계값 (이 점수 이상인 게시글만 저장)
-QUALITY_THRESHOLD = 35
+QUALITY_THRESHOLD = 30
 # ──────────────────────────────────────────────
 
 # 날짜 확인 함수

@@ -58,3 +58,8 @@ Thumbs.db
 chroma.sqlite3
 chroma.sqlite3-shm
 chroma.sqlite3-wal
+
+# 테스트
+test.py
+test_jwt.py
+*.txt
