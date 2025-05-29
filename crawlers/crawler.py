@@ -101,7 +101,7 @@ def main():
     if args.yt_mode in ['hybrid', 'channel']:
         print(f"   - yt-channel = {args.yt_channel}")
     if args.yt_mode in ['hybrid', 'search']:
-        print(f"   - yt-query = '던파 가이드(10), 현질가이드(3), 나벨공략(5)'")
+        print(f"   - yt-query = '던파 가이드(10), 현질가이드(5), 나벨공략(5)'")
     print(f"   - yt-max = {args.yt_max}")
     print(f"   - 병렬 처리 = {args.parallel}, 작업자 수 = {args.workers}")
     print(f"   - 증분 크롤링 = {args.incremental}")
@@ -142,7 +142,7 @@ def main():
                 # 던파 카테고리별 검색 쿼리 설정
                 search_queries = [
                     ("던파 가이드", 10),       # 던파 가이드 10개
-                    ("던파 현질 가이드", 3),    # 던파 현질 가이드 3개
+                    ("던파 현질 가이드", 5),    # 던파 현질 가이드 5개
                     ("던파 나벨 공략", 5),      # 던파 나벨 공략 5개
                 ]
                 

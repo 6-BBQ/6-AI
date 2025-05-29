@@ -4,10 +4,9 @@ import json
 import logging
 import os
 import shutil
-import argparse
-import hashlib
+import numpy as np
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Tuple
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -22,9 +21,12 @@ from langchain_huggingface import HuggingFaceEmbeddings
 load_dotenv()
 PROCESSED_PATH = Path("data/processed/processed_docs.jsonl")
 CHROMA_DIR = "vector_db/chroma"
-VECTORDB_CACHE = Path("vector_db/vectordb_cache.json")  # 벡터DB 캐시
+VECTORDB_CACHE = Path("vector_db/vectordb_cache.json")
+JOB_EMBEDDINGS_PATH = Path("vector_db/job_embeddings.json")
+JOB_NAMES_PATH = Path("crawlers/job_names.json")
 BATCH_SIZE = 200
 MODEL_NAME = "dragonkue/bge-m3-ko"
+JOB_SIMILARITY_THRESHOLD = 0.75
 
 logging.basicConfig(
     level=logging.INFO,
@@ -64,7 +66,6 @@ def save_vectordb_cache(processed_ids: Set[str]) -> None:
 def get_existing_doc_ids_from_db(vectordb) -> Set[str]:
     """기존 벡터DB에서 문서 ID 집합 추출"""
     try:
-        # Chroma에서 모든 문서의 메타데이터 가져오기
         collection = vectordb.get()
         existing_ids = set()
         
@@ -80,10 +81,207 @@ def get_existing_doc_ids_from_db(vectordb) -> Set[str]:
         return set()
 
 # ───────────────────────────────────────────────
-# 3️⃣ JSONL → Document 리스트 변환 함수
+# 3️⃣ 직업별 임베딩 관리 함수
 
-def load_docs(path: Path, incremental: bool = False, existing_ids: Set[str] = None) -> List[Document]:
-    """문서 로드 (증분 처리 지원)"""
+def load_job_names() -> List[str]:
+    """직업명 목록 로드"""
+    try:
+        if JOB_NAMES_PATH.exists():
+            with JOB_NAMES_PATH.open('r', encoding='utf-8') as f:
+                job_names = json.load(f)
+                log.info(f"📋 직업명 {len(job_names)}개 로드 완료")
+                return job_names
+    except Exception as e:
+        log.warning(f"직업명 로드 실패: {e}")
+    return []
+
+def build_job_embeddings(embedding_fn, job_names: List[str]) -> Dict[str, List[float]]:
+    """각 직업명에 대한 임베딩 벡터 생성"""
+    log.info(f"🧠 {len(job_names)}개 직업에 대한 임베딩 생성 중...")
+    
+    job_embeddings = {}
+    
+    for job_name in job_names:
+        job_context = f"던전앤파이터 {job_name} 직업 가이드 공략 스킬 장비 세팅"
+        
+        try:
+            embedding_vector = embedding_fn.embed_query(job_context)
+            job_embeddings[job_name] = embedding_vector
+        except Exception as e:
+            log.warning(f"직업 '{job_name}' 임베딩 생성 실패: {e}")
+            continue
+    
+    log.info(f"✅ {len(job_embeddings)}개 직업 임베딩 생성 완료")
+    return job_embeddings
+
+def save_job_embeddings(job_embeddings: Dict[str, List[float]]) -> None:
+    """직업별 임베딩 저장"""
+    try:
+        JOB_EMBEDDINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        
+        serializable_embeddings = {}
+        for job_name, embedding in job_embeddings.items():
+            if isinstance(embedding, np.ndarray):
+                serializable_embeddings[job_name] = embedding.tolist()
+            else:
+                serializable_embeddings[job_name] = embedding
+        
+        save_data = {
+            'job_embeddings': serializable_embeddings,
+            'model_name': MODEL_NAME,
+            'threshold': JOB_SIMILARITY_THRESHOLD,
+            'created_at': datetime.now().isoformat(),
+            'total_jobs': len(serializable_embeddings)
+        }
+        
+        with JOB_EMBEDDINGS_PATH.open('w', encoding='utf-8') as f:
+            json.dump(save_data, f, ensure_ascii=False, indent=2)
+            
+        log.info(f"💾 직업 임베딩 저장 완료: {JOB_EMBEDDINGS_PATH}")
+        
+    except Exception as e:
+        log.error(f"직업 임베딩 저장 실패: {e}")
+
+def load_job_embeddings() -> Tuple[Dict[str, np.ndarray], str]:
+    """저장된 직업별 임베딩 로드"""
+    try:
+        if JOB_EMBEDDINGS_PATH.exists():
+            with JOB_EMBEDDINGS_PATH.open('r', encoding='utf-8') as f:
+                data = json.load(f)
+                
+            job_embeddings = {}
+            for job_name, embedding_list in data['job_embeddings'].items():
+                job_embeddings[job_name] = np.array(embedding_list)
+                
+            model_name = data.get('model_name', MODEL_NAME)
+            log.info(f"📂 저장된 직업 임베딩 로드: {len(job_embeddings)}개 직업")
+            return job_embeddings, model_name
+            
+    except Exception as e:
+        log.warning(f"직업 임베딩 로드 실패: {e}")
+    
+    return {}, MODEL_NAME
+
+def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
+    """코사인 유사도 계산"""
+    try:
+        dot_product = np.dot(vec1, vec2)
+        norm1 = np.linalg.norm(vec1)
+        norm2 = np.linalg.norm(vec2)
+        
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+            
+        return dot_product / (norm1 * norm2)
+    except Exception:
+        return 0.0
+
+def classify_document_job(doc_content: str, embedding_fn, job_embeddings: Dict[str, np.ndarray]) -> Tuple[str, float]:
+    """문서 내용을 기반으로 직업 분류"""
+    try:
+        doc_embedding = np.array(embedding_fn.embed_query(doc_content))
+        
+        best_job = None
+        best_score = 0.0
+        
+        for job_name, job_embedding in job_embeddings.items():
+            similarity = cosine_similarity(doc_embedding, job_embedding)
+            
+            if similarity > best_score:
+                best_score = similarity
+                best_job = job_name
+        
+        if best_score >= JOB_SIMILARITY_THRESHOLD:
+            return best_job, best_score
+        else:
+            return None, best_score
+            
+    except Exception as e:
+        log.warning(f"문서 직업 분류 실패: {e}")
+        return None, 0.0
+
+def classify_existing_documents():
+    """기존 문서들에 대해 직업 분류 수행 (후처리)"""
+    log.info("🎯 기존 문서들에 대한 직업 분류 시작")
+    
+    job_embeddings, model_name = load_job_embeddings()
+    if not job_embeddings:
+        log.error("❌ 직업 임베딩을 찾을 수 없습니다. 먼저 벡터DB를 구축하세요.")
+        return
+    
+    embedding_fn = HuggingFaceEmbeddings(
+        model_name=model_name,
+        model_kwargs={"device": "cuda" if torch.cuda.is_available() else "cpu"},
+        encode_kwargs={"normalize_embeddings": True}
+    )
+    
+    if not PROCESSED_PATH.exists():
+        log.error(f"❌ 전처리된 문서 파일이 없습니다: {PROCESSED_PATH}")
+        return
+    
+    classified_docs = []
+    total_classified = 0
+    total_processed = 0
+    
+    with PROCESSED_PATH.open(encoding="utf-8") as f:
+        for line_num, line in enumerate(f, 1):
+            try:
+                raw: Dict = json.loads(line)
+                total_processed += 1
+                
+                if raw["metadata"].get("class_name"):
+                    classified_docs.append(raw)
+                    continue
+                
+                title = raw["metadata"].get("title", "")
+                content = raw.get("content", "")
+                combined_text = f"{title} {content}".strip()
+                
+                if not combined_text:
+                    classified_docs.append(raw)
+                    continue
+                
+                classified_job, similarity_score = classify_document_job(
+                    combined_text, embedding_fn, job_embeddings
+                )
+                
+                if classified_job:
+                    raw["metadata"]["class_name"] = classified_job
+                    raw["metadata"]["job_similarity_score"] = round(similarity_score, 3)
+                    total_classified += 1
+                
+                classified_docs.append(raw)
+                
+                if total_processed % 1000 == 0:
+                    log.info(f"🔄 진행상황: {total_processed}개 처리 중, {total_classified}개 분류 완료")
+                
+            except json.JSONDecodeError as e:
+                log.warning(f"줄 {line_num}에서 JSON 파싱 실패: {e}")
+                continue
+            except Exception as e:
+                log.warning(f"줄 {line_num}에서 문서 처리 실패: {e}")
+                continue
+    
+    if classified_docs:
+        backup_path = PROCESSED_PATH.with_suffix('.backup.jsonl')
+        if PROCESSED_PATH.exists():
+            shutil.copy2(PROCESSED_PATH, backup_path)
+            log.info(f"💾 기존 파일 백업: {backup_path}")
+        
+        with PROCESSED_PATH.open('w', encoding='utf-8') as f:
+            for doc in classified_docs:
+                f.write(json.dumps(doc, ensure_ascii=False) + '\\n')
+        
+        log.info(f"✅ 직업 분류 완료!")
+        log.info(f"   - 전체 문서: {total_processed}개")
+        log.info(f"   - 분류된 문서: {total_classified}개")
+        log.info(f"   - 분류율: {(total_classified/total_processed*100):.1f}%")
+
+# ───────────────────────────────────────────────
+# 4️⃣ 메인 함수
+
+def load_docs(path: Path, existing_ids: Set[str] = None) -> List[Document]:
+    """문서 로드 (증분 처리)"""
     docs = []
     skipped = 0
     
@@ -96,13 +294,15 @@ def load_docs(path: Path, incremental: bool = False, existing_ids: Set[str] = No
                 raw: Dict = json.loads(line)
                 doc_id = raw.get("id", "")
                 
-                # 증분 모드에서 이미 처리된 문서 건너뛰기
-                if incremental and doc_id in existing_ids:
+                if doc_id in existing_ids:
                     skipped += 1
                     continue
                 
+                title = raw["metadata"].get("title", "")
+                page_content = f"[TITLE] {title}\\n{raw['content']}"
+
                 doc = Document(
-                    page_content=raw["content"],
+                    page_content=page_content,
                     metadata={**raw["metadata"], "doc_id": doc_id}
                 )
                 docs.append(doc)
@@ -114,19 +314,14 @@ def load_docs(path: Path, incremental: bool = False, existing_ids: Set[str] = No
                 log.warning(f"줄 {line_num}에서 문서 처리 실패: {e}")
                 continue
     
-    if incremental and skipped > 0:
+    if skipped > 0:
         log.info(f"🔄 증분 모드: {skipped}개 문서 건너뛰기 (이미 처리됨)")
     
     return docs
 
-# ───────────────────────────────────────────────
-# 4️⃣ 메인 함수
-
-def main(incremental: bool = False, force: bool = False):
-    """벡터 DB 구축 메인 함수"""
-    
-    mode_name = "증분" if incremental else "전체"
-    log.info(f"🚀 {mode_name} 모드 - 한국어 BGE-m3-ko 기반 임베딩 시작")
+def main():
+    """벡터 DB 구축 메인 함수 (증분 모드)"""
+    log.info("🚀 증분 모드 - 한국어 BGE-m3-ko 기반 임베딩 시작")
     
     # 임베딩 함수 정의
     embedding_fn = HuggingFaceEmbeddings(
@@ -135,13 +330,23 @@ def main(incremental: bool = False, force: bool = False):
         encode_kwargs={"normalize_embeddings": True}
     )
     
-    # 강제 모드일 때 기존 데이터 삭제
-    if force and Path(CHROMA_DIR).exists():
-        log.info("🗑️ 강제 모드: 기존 Chroma 폴더 삭제")
-        shutil.rmtree(CHROMA_DIR)
-        if VECTORDB_CACHE.exists():
-            VECTORDB_CACHE.unlink()
-            log.info("🗑️ 강제 모드: 기존 캐시 파일 삭제")
+    # 직업별 임베딩 구축 및 저장
+    job_names = load_job_names()
+    if job_names:
+        existing_job_embeddings, existing_model = load_job_embeddings()
+        
+        if (not existing_job_embeddings or 
+            existing_model != MODEL_NAME or
+            set(job_names) != set(existing_job_embeddings.keys())):
+            
+            log.info("🔄 직업별 임베딩 새로 구축 중...")
+            new_job_embeddings = build_job_embeddings(embedding_fn, job_names)
+            if new_job_embeddings:
+                save_job_embeddings(new_job_embeddings)
+        else:
+            log.info("📂 기존 직업 임베딩 사용")
+    else:
+        log.warning("⚠️ 직업명 목록을 로드할 수 없어 직업 임베딩을 건너뜍니다")
     
     # 벡터DB 초기화
     vectordb = Chroma(
@@ -149,29 +354,18 @@ def main(incremental: bool = False, force: bool = False):
         embedding_function=embedding_fn,
     )
     
-    # 기존 처리된 문서 ID 로드
-    existing_ids = set()
-    if incremental:
-        # 캐시에서 로드 (빠름)
-        cached_ids = load_vectordb_cache()
-        
-        # 실제 DB에서 로드 (정확함)
-        db_ids = get_existing_doc_ids_from_db(vectordb)
-        
-        # 두 결과를 합집합으로 처리 (안전함)
-        existing_ids = cached_ids.union(db_ids)
-        log.info(f"🔄 증분 모드: 기존 처리된 문서 {len(existing_ids)}개")
-    elif not force and Path(CHROMA_DIR).exists():
-        # 전체 모드이지만 force가 아닌 경우, 기존 DB 유지하고 추가
-        log.info("📋 전체 모드: 기존 DB에 새 문서 추가")
-        existing_ids = get_existing_doc_ids_from_db(vectordb)
+    # 기존 처리된 문서 ID 로드 (증분 처리)
+    cached_ids = load_vectordb_cache()
+    db_ids = get_existing_doc_ids_from_db(vectordb)
+    existing_ids = cached_ids.union(db_ids)
+    log.info(f"🔄 증분 모드: 기존 처리된 문서 {len(existing_ids)}개")
     
     # 문서 로드
     if not PROCESSED_PATH.exists():
         log.error(f"❌ 전처리된 문서 파일이 없습니다: {PROCESSED_PATH}")
         return
     
-    all_docs = load_docs(PROCESSED_PATH, incremental, existing_ids)
+    all_docs = load_docs(PROCESSED_PATH, existing_ids)
     
     if not all_docs:
         log.info("✅ 처리할 새 문서가 없습니다")
@@ -194,7 +388,6 @@ def main(incremental: bool = False, force: bool = False):
             vectordb.add_documents(batch)
             processed_count += len(batch)
             
-            # 처리된 문서 ID 기록
             for doc in batch:
                 doc_id = doc.metadata.get('doc_id', '')
                 if doc_id:
@@ -202,33 +395,16 @@ def main(incremental: bool = False, force: bool = False):
             
             log.info(f"✅ 배치 {batch_num} 완료 ({processed_count}/{total})")
             
-            # 배치 간 딜레이
             if i + BATCH_SIZE < total:
                 import time
                 time.sleep(0.5)
                 
         except Exception as e:
             log.error(f"❌ 배치 {batch_num} 실패: {e}")
-            import time
-            time.sleep(10.0)
-            
-            # 재시도
-            try:
-                vectordb.add_documents(batch)
-                processed_count += len(batch)
-                
-                for doc in batch:
-                    doc_id = doc.metadata.get('doc_id', '')
-                    if doc_id:
-                        new_doc_ids.add(doc_id)
-                        
-                log.info(f"✅ 재시도 성공: 배치 {batch_num} 완료")
-            except Exception as e2:
-                log.error(f"❌ 재시도 실패: {e2}")
-                continue
+            continue
     
-    # 캐시 업데이트 (증분 모드일 때)
-    if incremental or new_doc_ids:
+    # 캐시 업데이트
+    if new_doc_ids:
         updated_ids = existing_ids.union(new_doc_ids)
         save_vectordb_cache(updated_ids)
         log.info(f"💾 캐시 업데이트: 총 {len(updated_ids)}개 문서 ID 저장")
@@ -240,94 +416,21 @@ def main(incremental: bool = False, force: bool = False):
     log.info(f"🧠 사용 모델: {MODEL_NAME}")
 
 # ───────────────────────────────────────────────
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="던파 벡터 DB 구축 스크립트 (증분 처리 지원)",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-예시:
-  # 전체 벡터 DB 구축 (기본 모드)
-  python build_vector_db.py
-  
-  # 증분 벡터 DB 구축 (새로운 문서만)
-  python build_vector_db.py --incremental
-  
-  # 강제 전체 재구축
-  python build_vector_db.py --force
-  
-  # 증분 + 상세 로그
-  python build_vector_db.py --incremental --verbose
-        """
-    )
+    import sys
     
-    parser.add_argument(
-        "--incremental", 
-        action="store_true", 
-        default=True,
-        help="증분 벡터 DB 구축 (기본값)"
-    )
-    
-    parser.add_argument(
-        "--full", 
-        action="store_true", 
-        help="전체 벡터 DB 구축 (증분 무시)"
-    )
-    
-    parser.add_argument(
-        "--force", 
-        action="store_true", 
-        help="기존 벡터 DB 강제 삭제 후 전체 재구축"
-    )
-    
-    parser.add_argument(
-        "--verbose", "-v",
-        action="store_true", 
-        help="상세한 로그 출력"
-    )
-    
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=BATCH_SIZE,
-        help=f"배치 크기 (기본: {BATCH_SIZE})"
-    )
-    
-    args = parser.parse_args()
-    
-    # 전체 모드 검사
-    if args.full:
-        args.incremental = False
-    
-    # 로그 레벨 설정
-    if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
-    
-    # 배치 크기 설정
-    BATCH_SIZE = args.batch_size
-    
-    # 모드 충돌 검사
-    if args.incremental and args.force:
-        log.warning("⚠️ --incremental과 --force를 함께 사용하면 --force가 우선됩니다")
-        args.incremental = False
-    elif args.full and args.force:
-        # --full과 --force는 동일한 효과
-        pass
-    
-    # 시작 메시지
-    mode_emoji = "🔄" if args.incremental else "🗑️" if args.force else "📋"
-    mode_name = "증분" if args.incremental else "강제 재구축" if args.force else "전체"
-    
-    log.info(f"{mode_emoji} {mode_name} 벡터 DB 구축 시작")
-    log.info(f"   - 배치 크기: {BATCH_SIZE}")
-    log.info(f"   - 모델: {MODEL_NAME}")
-    log.info(f"   - 입력 파일: {PROCESSED_PATH}")
-    log.info(f"   - 출력 디렉토리: {CHROMA_DIR}")
-    
-    try:
-        main(incremental=args.incremental, force=args.force)
-        log.info("✅ 벡터 DB 구축 완료!")
-    except KeyboardInterrupt:
-        log.info("⚠️ 사용자에 의해 중단됨")
-    except Exception as e:
-        log.error(f"❌ 벡터 DB 구축 실패: {e}")
-        raise
+    if len(sys.argv) > 1 and sys.argv[1] == "--classify-jobs":
+        log.info("🎯 직업 분류 모드")
+        try:
+            classify_existing_documents()
+            log.info("✅ 직업 분류 완료!")
+        except Exception as e:
+            log.error(f"❌ 직업 분류 실패: {e}")
+    else:
+        log.info("🔄 증분 벡터 DB 구축 시작")
+        try:
+            main()
+            log.info("✅ 벡터 DB 구축 완료!")
+        except Exception as e:
+            log.error(f"❌ 벡터 DB 구축 실패: {e}")

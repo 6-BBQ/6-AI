@@ -31,14 +31,14 @@ load_dotenv()
 class StructuredRAGService:
     """구조화된 RAG 서비스 클래스"""
 
-    # --- 상수 정의 (기존과 동일하게 유지) ---
+    # --- 상수 정의 ---
     CACHE_DIR_NAME = "cache"
     VECTOR_DB_DIR = "vector_db/chroma"
     EMBED_MODEL_NAME = "dragonkue/bge-m3-ko"
     BM25_CACHE_FILE = "bm25_retriever.pkl"
     CROSS_ENCODER_CACHE_FILE = "cross_encoder.pkl"
     LLM_MODEL_NAME = "models/gemini-2.5-flash-preview-05-20"
-    CROSS_ENCODER_MODEL_HF = "cross-encoder/ms-marco-MiniLM-L6-v2"
+    CROSS_ENCODER_MODEL_HF = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
 
     CACHE_EXPIRY_SHORT = 60 * 60 * 12  # 12시간
     CACHE_EXPIRY_LONG = 60 * 60 * 24   # 24시간
@@ -103,7 +103,7 @@ class StructuredRAGService:
         # 벡터 검색기 설정 (검색 개수 대폭 증가)
         self.vector_retriever = self.vectordb.as_retriever(
             search_type="mmr",
-            search_kwargs={"k": 60, "fetch_k": 180, "lambda_mult": 0.6},
+            search_kwargs={"k": 60, "fetch_k": 180, "lambda_mult": 0.5},
         )
         
         # BM25 검색기 생성 (캐시 사용)
@@ -112,12 +112,12 @@ class StructuredRAGService:
         # 앙상블 검색기 생성
         self.rrf_retriever = EnsembleRetriever(
             retrievers=[self.vector_retriever, self.bm25_retriever],
-            weights=[0.4, 0.6],
+            weights=[0.5, 0.5],
         )
         
         # CrossEncoder 재랭킹 추가 (최종 문서 수 증가)
         cross_encoder_model = self._get_cross_encoder_model()
-        compressor = CrossEncoderReranker(model=cross_encoder_model, top_n=30)
+        compressor = CrossEncoderReranker(model=cross_encoder_model, top_n=60)
         base_retriever = ContextualCompressionRetriever(
             base_retriever=self.rrf_retriever,
             base_compressor=compressor,
@@ -207,7 +207,6 @@ class StructuredRAGService:
         return "\n".join(context_parts) if context_parts else "이전 대화 기록이 없습니다."
 
     def rag_search(self, query: str, character_info: Optional[Dict]) -> Dict[str, Any]:
-
         # 캐시 확인
         cached_result = self.cache_manager.get_cached_search_result(query, 'rag_search', character_info)
         if cached_result:
@@ -215,14 +214,13 @@ class StructuredRAGService:
             return cached_result
 
         search_start_time = time.time()
-        enhanced_query = self.text_processor.enhance_query_with_character(query, character_info)
         times = {"internal_search": 0.0}
 
         def _search_internal():
             start = time.time()
             try:
                 print("🔄 내부 RAG 검색 시작...")
-                docs = self.internal_retriever.get_relevant_documents(enhanced_query)
+                docs = self.internal_retriever.get_relevant_documents(query)
                 times["internal_search"] = time.time() - start
                 print(f"✅ 내부 RAG 검색 완료: {times['internal_search']:.2f}초, {len(docs)}개 문서")
                 return docs
@@ -231,7 +229,6 @@ class StructuredRAGService:
                 print(f"❌ 내부 RAG 검색 오류 ({times['internal_search']:.2f}초): {e}")
                 return []
 
-        
         internal_docs = _search_internal()
         
         times["internal_search"] = time.time() - search_start_time
@@ -244,7 +241,7 @@ class StructuredRAGService:
         result = {
             "internal_docs": internal_docs,
             "internal_context_provided_to_llm": internal_context_str,
-            "enhanced_query": enhanced_query,
+            "enhanced_query": query,
             "search_times": times
         }
         
@@ -257,14 +254,6 @@ class StructuredRAGService:
         total_start_time = time.time()
         
         print(f"\n[INFO] 질문 처리 시작: \"{query}\"")
-        char_desc_parts = []
-        if character_info:
-            if class_info := character_info.get('class'):
-                char_desc_parts.append(class_info)
-            if fame_info := character_info.get('fame'):
-                char_desc_parts.append(f"{fame_info}명성")
-            if char_desc_parts:
-                print(f"[INFO] 캐릭터: {' '.join(char_desc_parts)}")
         
         # 이전 대화 기록 로그 출력
         if conversation_history and len(conversation_history) > 0:
