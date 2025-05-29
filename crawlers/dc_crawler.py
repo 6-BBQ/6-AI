@@ -45,7 +45,7 @@ def is_valid_date(date_text):
 # 📌 1. 게시글 리스트 추출 (한 페이지)
 def get_post_list(page_num, session):
     """디시인사이드에서 게시글 목록 가져오기"""
-    url = f"{BASE_URL}/mgallery/board/lists/?id=dfip&sort_type=N&exception_mode=recommend&search_head=10&page={page_num}"
+    url = f"{BASE_URL}/mgallery/board/lists/?id=dfip&sort_type=N&search_head=10&page={page_num}"
     try:
         resp = session.get(url, timeout=10)
         resp.raise_for_status()

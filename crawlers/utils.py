@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from bs4 import BeautifulSoup
 from typing import Optional
-from rapidfuzz import process
+from rapidfuzz import process, fuzz
 from kiwipiepy import Kiwi
 
 # 로깅 설정
@@ -13,53 +13,73 @@ logger = logging.getLogger("crawler")
 _JOB_JSON = Path(__file__).with_name("job_names.json")
 kiwi = Kiwi()
 
+# ─── 직업명 로드 후 ───
 try:
     _JOB_LIST: list[str] = json.loads(_JOB_JSON.read_text(encoding="utf-8"))
     _JOB_SET: set[str] = set(_JOB_LIST)
 except Exception as e:
-    print(f"⚠️ 직업명 JSON 로딩 오류: {e}")
-    _JOB_LIST = []
-    _JOB_SET = set()
+    logger.warning(f"⚠️ 직업명 JSON 로딩 오류: {e}")
+    _JOB_LIST, _JOB_SET = [], set()
 
-_BOUNDARY = r"(?<![가-힣A-Za-z0-9])(?:{names})(?![가-힣A-Za-z0-9])"
+if _JOB_LIST:
+    _JOB_PATTERN = re.compile(
+        r"(?:眞:)?[남여]?(" + "|".join(map(re.escape, _JOB_LIST)) + r")(?:\b|$)", re.I
+    )
+else:
+    _JOB_PATTERN = None          # 매치 방지용
+
 _JOB_PATTERN = re.compile(
-    _BOUNDARY.format(
-        names="|".join(map(re.escape, sorted(_JOB_SET, key=len, reverse=True)))
-    ),
-    re.IGNORECASE,
+    r"(眞:)?[남여]?("
+    + "|".join(map(re.escape, _JOB_LIST))
+    + r")(?:\b|$)",          # ← 단어 경계
+    re.I
 )
+_BRACKET_RE = re.compile(r"\[([^\[\]]{2,30})\]")
 
-CONTEXT_KEYWORDS = {"공략", "가이드", "세팅", "스펙업", "뉴비", "팁"}
+def _extract_candidate_tokens(text: str) -> set[str]:
+    """Kiwi 결과에서 명사·고유명사 토큰만 뽑되 길이≥2"""
+    try:
+        return {
+            w.form.lower()
+            for w in kiwi.tokenize(text)
+            if w.tag.startswith("N") and len(w.form) >= 2
+        }
+    except Exception:
+        return set()
 
-def detect_class_name(title: str, body: Optional[str] = None) -> Optional[str]:
+def detect_class_name(title: str, body: str | None = None) -> str | None:
     if not title:
         return None
 
+    # 0️⃣  대괄호 안 직업명 우선
+    bracket_hits = _BRACKET_RE.findall(title)
+    for chunk in bracket_hits:
+        m = _JOB_PATTERN.search(chunk.lower())
+        if m:
+            return m.group(0)
+
     text = f"{title} {body or ''}".lower()
 
-    # 1️⃣ 정규식 기반 직업 탐지
-    m = _JOB_PATTERN.search(text)
-    if m:
-        return m.group(0)
+    # 1️⃣  정규식
+    if _JOB_PATTERN:
+        m = _JOB_PATTERN.search(text)
+        if m:
+            return m.group(0)
 
-    # 2️⃣ Kiwi 기반 토큰화
-    try:
-        tokens = set(word.form for word in kiwi.tokenize(text))
-        hit = _JOB_SET.intersection(tokens)
-        if hit:
-            return next(iter(hit))
-    except Exception as e:
-        logger.warning(f"Kiwi 오류: {e}")
+    # 2️⃣  Kiwi 토큰 교차
+    tokens = _extract_candidate_tokens(text)
+    hit = _JOB_SET.intersection(tokens)
+    if hit:
+        return next(iter(hit))
 
-    # 3️⃣ Fuzzy Matching (조건부)
-    if len(title) < 25 and any(k in text for k in CONTEXT_KEYWORDS):
-        result = process.extractOne(
-            title.replace(" ", ""), _JOB_LIST, score_cutoff=92
+    # 3️⃣  Fuzzy – 토큰 후보에만 수행
+    candidates = [t for t in tokens if 2 <= len(t) <= 6]
+    for tok in candidates:
+        res = process.extractOne(
+            tok, _JOB_LIST, scorer=fuzz.ratio, score_cutoff=95
         )
-        if result:  # None 체크 추가
-            match, score, _ = result
-            if score >= 92:
-                return match
+        if res:
+            return res[0]
 
     return None
 
@@ -283,8 +303,8 @@ def build_item(
     # 4) 콘텐츠 품질 점수 계산
     content_score = calculate_content_score(clean_body, title)
 
-    # 5) 직업 이름 감지 (메타데이터용만, 점수에는 미반영)
-    cls = detect_class_name(title, clean_body)
+    # 5) 직업 분류는 벡터 검색 후처리로 미룸 - 일단 null로 설정
+    # cls = detect_class_name(title, clean_body)  # 제거됨
     
     # 6) 통합 품질 점수 계산 (직업 점수 제외)
     quality_score = calc_quality_score(
@@ -299,7 +319,7 @@ def build_item(
         "date": date_obj.strftime("%Y-%m-%d"),
         "views": views, 
         "likes": likes,
-        "class_name": cls,
+        "class_name": None,  # 후처리에서 벡터 검색으로 분류 예정
         "source": source,
         "quality_score": quality_score,  # 통합된 단일 점수
         "body": clean_body,

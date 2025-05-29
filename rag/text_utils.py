@@ -10,22 +10,53 @@ class TextProcessor:
     
     @staticmethod
     def enhance_query_with_character(query: str, character_info: Optional[Dict]) -> str:
-        """캐릭터 정보로 검색 쿼리 강화 (FastAPI에서 변환된 키 사용)"""
+        """
+        캐릭터 정보로 검색 쿼리 풍부하게 강화
+        Korean + structured tokens  ➜  BM25 / 벡터 모두 높은 recall
+        """
         if not character_info:
             return query
-        
-        enhancements = []
-        # FastAPI에서 변환된 'job' 키 사용
-        if job_info := character_info.get('job'):
-            enhancements.append(job_info)
-        if fame := character_info.get('fame'):
-            enhancements.append(str(fame))
-        
-        if enhancements:
-            enhanced_query = f"{' '.join(enhancements)} {query}"
-            print(f"[DEBUG] 쿼리 강화: '{query}' → '{enhanced_query}'")
-            return enhanced_query
+
+        parts = []
+        add = parts.append          # 지역 변수로 바인딩(미세 최적화)
+
+        # === 1) 직업
+        if job := character_info.get("job"):
+            add(f"직업::{job}")               # ex) 직업::레인저(여)
+            # 영문 별칭(있을 때)
+            if job_en := character_info.get("job_en"):
+                add(f"job::{job_en}")         # ex) job::Female Ranger
+
+        # === 2) 명성
+        if fame := character_info.get("fame"):
+            add(f"명성::{fame}")              # ex) 명성::12038
+
+        # === 3) 무기
+        if weapon := character_info.get("weapon"):
+            add(f"무기::{weapon}")
+
+        # === 4) 에픽·태초 개수
+        if ep := character_info.get("epicNum"):
+            add(f"에픽::{ep}")
+        if ori := character_info.get("originalityNum"):
+            add(f"태초::{ori}")
+
+        # === 5) 세트 아이템
+        if set_name := character_info.get("set_item_name"):
+            rarity = character_info.get("set_item_rarity", "")
+            add(f"세트::{set_name}{f'({rarity})' if rarity else ''}")
+
+        # === 6) 칭호
+        if title := character_info.get("title"):
+            add(f"칭호::{title}")
+
+        # === 7) 최종 조립
+        if parts:
+            enhanced = " | ".join(parts) + " | " + query
+            print(f"[DEBUG] 쿼리 강화: '{query}' → '{enhanced}'")
+            return enhanced
         return query
+
     
     @staticmethod
     def format_docs_to_context_string(docs: List[Document], context_type: str) -> str:

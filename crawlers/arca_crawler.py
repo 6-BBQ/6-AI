@@ -62,7 +62,7 @@ def get_new_scraper():
 # 📌 1. 게시글 리스트 추출 (한 페이지)
 def get_post_list(page_num):
     """아카라이브에서 게시글 목록 가져오기"""
-    url = f"{BASE_URL}/b/dunfa?mode=best&category=공략&p={page_num}"
+    url = f"{BASE_URL}/b/dunfa?category=공략&p={page_num}"
     try:
         scraper = get_new_scraper()
         resp = scraper.get(url, timeout=15)  # 아카라이브는 로딩이 느릴 수 있어 타임아웃 증가
