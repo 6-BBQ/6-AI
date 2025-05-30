@@ -286,12 +286,12 @@ def crawl_df(max_pages=2, max_depth=2, visited_urls=None, is_incremental=True):
                 notice_processed = True
             
         # ── 게시판 크롤링 끝난 뒤 ───────────────────
-        # ② 공식 가이드 크롤링
-        for gid in GUIDE_IDS:
-            item = crawl_guide_page(gid, session)
-            if item:
-                item["quality_score"] = 9.0
-                results.append(item)
+        # ② 공식 가이드 크롤링 : 필요할 때 사용
+        # for gid in GUIDE_IDS:
+        #     item = crawl_guide_page(gid, session)
+        #     if item:
+        #         item["quality_score"] = 9.0
+        #         results.append(item)
 
         # 결과 요약
         elapsed_time = time.time() - start_time

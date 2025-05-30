@@ -55,15 +55,15 @@ def main():
     parser.add_argument(
         "--pages", 
         type=int, 
-        default=50, 
-        help="크롤링할 페이지 수 (기본: 50)"
+        default=10, 
+        help="크롤링할 페이지 수"
     )
     
     parser.add_argument(
         "--depth", 
         type=int, 
         default=3, 
-        help="크롤링 재귀 깊이 (기본: 3)"
+        help="크롤링 재귀 깊이"
     )
     
     parser.add_argument(

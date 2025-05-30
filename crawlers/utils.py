@@ -5,83 +5,10 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 from typing import Optional
 from rapidfuzz import process, fuzz
-from kiwipiepy import Kiwi
 
 # 로깅 설정
 logger = logging.getLogger("crawler")
 
-_JOB_JSON = Path(__file__).with_name("job_names.json")
-kiwi = Kiwi()
-
-# ─── 직업명 로드 후 ───
-try:
-    _JOB_LIST: list[str] = json.loads(_JOB_JSON.read_text(encoding="utf-8"))
-    _JOB_SET: set[str] = set(_JOB_LIST)
-except Exception as e:
-    logger.warning(f"⚠️ 직업명 JSON 로딩 오류: {e}")
-    _JOB_LIST, _JOB_SET = [], set()
-
-if _JOB_LIST:
-    _JOB_PATTERN = re.compile(
-        r"(?:眞:)?[남여]?(" + "|".join(map(re.escape, _JOB_LIST)) + r")(?:\b|$)", re.I
-    )
-else:
-    _JOB_PATTERN = None          # 매치 방지용
-
-_JOB_PATTERN = re.compile(
-    r"(眞:)?[남여]?("
-    + "|".join(map(re.escape, _JOB_LIST))
-    + r")(?:\b|$)",          # ← 단어 경계
-    re.I
-)
-_BRACKET_RE = re.compile(r"\[([^\[\]]{2,30})\]")
-
-def _extract_candidate_tokens(text: str) -> set[str]:
-    """Kiwi 결과에서 명사·고유명사 토큰만 뽑되 길이≥2"""
-    try:
-        return {
-            w.form.lower()
-            for w in kiwi.tokenize(text)
-            if w.tag.startswith("N") and len(w.form) >= 2
-        }
-    except Exception:
-        return set()
-
-def detect_class_name(title: str, body: str | None = None) -> str | None:
-    if not title:
-        return None
-
-    # 0️⃣  대괄호 안 직업명 우선
-    bracket_hits = _BRACKET_RE.findall(title)
-    for chunk in bracket_hits:
-        m = _JOB_PATTERN.search(chunk.lower())
-        if m:
-            return m.group(0)
-
-    text = f"{title} {body or ''}".lower()
-
-    # 1️⃣  정규식
-    if _JOB_PATTERN:
-        m = _JOB_PATTERN.search(text)
-        if m:
-            return m.group(0)
-
-    # 2️⃣  Kiwi 토큰 교차
-    tokens = _extract_candidate_tokens(text)
-    hit = _JOB_SET.intersection(tokens)
-    if hit:
-        return next(iter(hit))
-
-    # 3️⃣  Fuzzy – 토큰 후보에만 수행
-    candidates = [t for t in tokens if 2 <= len(t) <= 6]
-    for tok in candidates:
-        res = process.extractOne(
-            tok, _JOB_LIST, scorer=fuzz.ratio, score_cutoff=95
-        )
-        if res:
-            return res[0]
-
-    return None
 
 # ────────────────── 텍스트 처리 유틸 ──────────────────
 def clean_text(text):
@@ -302,9 +229,6 @@ def build_item(
     
     # 4) 콘텐츠 품질 점수 계산
     content_score = calculate_content_score(clean_body, title)
-
-    # 5) 직업 분류는 벡터 검색 후처리로 미룸 - 일단 null로 설정
-    # cls = detect_class_name(title, clean_body)  # 제거됨
     
     # 6) 통합 품질 점수 계산 (직업 점수 제외)
     quality_score = calc_quality_score(
