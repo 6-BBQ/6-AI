@@ -22,12 +22,20 @@ class SearcherFactory:
         for txt, meta in zip(store_data["documents"], store_data["metadatas"]):
             enhanced_content = txt
             
-            # 메타데이터로 컨텐츠 강화
+            # 메타데이터로 컨텐츠 강화 (직업 정보 중심)
             if meta:
-                if meta.get("title"):
-                    enhanced_content = f"제목: {meta['title']}\n{txt}"
-                if meta.get("class_name"):  # VectorDB의 class_name은 그대로 유지
-                    enhanced_content += f"\n직업: {meta['class_name']}"
+                # 직업 정보 강화 (가장 중요)
+                if class_name := meta.get("class_name"):
+                    # 직업명 1회만 prepend 해서 BM25 토큰에 확실히 포함시키기
+                    enhanced_content = f"{class_name}\n{enhanced_content}"
+                
+                # 품질 점수는 보조적으로만 사용
+                try:
+                    quality_score = float(meta.get("quality_score", 0.0))
+                    if quality_score > 3.0:  # 고품질 문서
+                        enhanced_content += "\n추천문서"
+                except (ValueError, TypeError):
+                    pass
             
             docs_for_bm25.append(Document(page_content=enhanced_content, metadata=meta))
         
