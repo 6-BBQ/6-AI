@@ -66,7 +66,7 @@ def main():
                         default="https://www.youtube.com/@zangzidnf",
                         help="YouTube 채널 URL(@핸들 또는 /channel/ID)")
     parser.add_argument("--yt-query", type=str, default="던파 가이드",
-                        help="YouTube 검색 쿼리")
+                        help="YouTube 기본 검색 쿼리 (사용되지 않음, 다중 쿼리 사용)")
     parser.add_argument("--yt-max", type=int, default=20,
                         help="채널에서 가져올 최신 영상 개수")
     parser.add_argument("--parallel", action="store_true", help="병렬 처리 활성화")
@@ -101,7 +101,7 @@ def main():
     if args.yt_mode in ['hybrid', 'channel']:
         print(f"   - yt-channel = {args.yt_channel}")
     if args.yt_mode in ['hybrid', 'search']:
-        print(f"   - yt-query = '{args.yt_query}'")
+        print(f"   - yt-query = '던파 가이드(10), 현질가이드(5), 나벨공략(5)'")
     print(f"   - yt-max = {args.yt_max}")
     print(f"   - 병렬 처리 = {args.parallel}, 작업자 수 = {args.workers}")
     print(f"   - 증분 크롤링 = {args.incremental}")
@@ -136,15 +136,24 @@ def main():
         def youtube_crawl_task():
             youtube_results = []
             if args.yt_mode in ["hybrid", "search"]:
-                # 검색 기반 크롤링
-                from youtube_crawler import crawl_youtube_search
-                search_results = run_crawler(crawl_youtube_search, args.yt_query, args.yt_max if args.yt_mode == "hybrid" else args.yt_max, visited_urls)
+                # 여러 검색 기반 크롤링 (카테고리별)
+                from youtube_crawler import crawl_youtube_multi_query
+                
+                # 던파 카테고리별 검색 쿼리 설정
+                search_queries = [
+                    ("던파 가이드", 10),       # 던파 가이드 10개
+                    ("던파 현질 가이드", 5),    # 던파 현질 가이드 5개
+                    ("던파 나벨 공략", 5),      # 던파 나벨 공략 5개
+                ]
+                
+                search_results = run_crawler(crawl_youtube_multi_query, search_queries, visited_urls)
                 youtube_results.extend(search_results)
                 
             if args.yt_mode in ["hybrid", "channel"]:
                 # 채널 기반 크롤링, 임시로 꺼둠
                 from youtube_crawler import crawl_youtube_channel
-                channel_results = run_crawler(crawl_youtube_channel, args.yt_channel, 0 if args.yt_mode == "hybrid" else args.yt_max, visited_urls)
+                # 하이브리드 모드일 때는 채널 크롤링 개수를 줄여서 검색 결과와 균형 맞춤
+                channel_results = run_crawler(crawl_youtube_channel, args.yt_channel, 3 if args.yt_mode == "hybrid" else args.yt_max, visited_urls)
                 youtube_results.extend(channel_results)
             
             # YouTube 결과를 개별 파일에 저장 (증분 모드 지원)

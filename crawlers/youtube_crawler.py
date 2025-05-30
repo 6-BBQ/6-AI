@@ -128,9 +128,43 @@ def fetch_caption_text(video_id: str) -> str:
         return ""
 
 # ────────────────────────────────────────────────────────────────
+def crawl_youtube_multi_query(search_queries: list[tuple[str, int]], visited_urls=None) -> list[dict]:
+    """
+    여러 검색 쿼리로 YouTube 크롤링
+    
+    Args:
+        search_queries: (검색어, 최대영상수) 튜플의 리스트
+        visited_urls: 이미 방문한 URL 집합 (증분 크롤링 지원)
+    
+    Returns:
+        list[dict]: 모든 검색 결과를 합친 영상 데이터 목록
+    """
+    # 증분 크롤링을 위한 방문 URL 관리
+    if visited_urls is None:
+        visited_urls = set()
+    
+    all_results = []
+    
+    for query, max_videos in search_queries:
+        print(f"\n🔍 검색 쿼리: '{query}' (최대 {max_videos}개)")
+        
+        # 검색 결과 영상 ID 가져오기
+        video_ids = search_youtube_videos(query, max_videos)
+        
+        # 영상 처리
+        results = process_video_ids(video_ids, visited_urls, f"검색[{query}]")
+        all_results.extend(results)
+        
+        print(f"✅ '{query}' 검색 완료: {len(results)}개 영상 수집")
+        
+        # 쿼리 간 대기
+        time.sleep(3.0)
+    
+    return all_results
+
 def crawl_youtube_search(search_query: str, max_videos: int, visited_urls=None) -> list[dict]:
     """
-    YouTube 검색 결과 크롤링
+    YouTube 검색 결과 크롤링 (단일 쿼리)
     
     Args:
         search_query: 검색 쿼리
@@ -278,13 +312,13 @@ if __name__ == "__main__":
     parser.add_argument("--incremental", action="store_true", default=True, help="증분 크롤링 (기본값)")
     parser.add_argument("--full", action="store_true", help="전체 크롤링 (증분 무시)")
     parser.add_argument("--max-videos", type=int, default=3, help="소스당 최대 영상 수")
-    parser.add_argument("--search-query", type=str, default="던파 가이드", help="검색 쿼리")
+    parser.add_argument("--search-query", type=str, default="던파 가이드", help="기본 검색 쿼리 (사용되지 않음, 다중 쿼리 사용)")
     args = parser.parse_args()
     
     print("🎆 YouTube 하이브리드 크롤링 시작!")
-    print("1️⃣ 검색 기반: 다양한 채널의 콘텐츠 수집")
+    print("1️⃣ 카테고리별 검색: 던파 가이드(10), 현질 가이드(3), 나벨 공략(5)")
     print("2️⃣ 신뢰 채널: 고품질 콘텐츠 보장")
-    print(f"📋 설정: 증분={args.incremental}, 최대영상={args.max_videos}, 검색어='{args.search_query}'")
+    print(f"📋 설정: 증분={args.incremental}, 카테고리별 크롤링 (던파 가이드 10개, 현질 가이드 3개, 나벨 공략 5개)")
     print()
     
     # 전체 모드 검사
@@ -310,15 +344,23 @@ if __name__ == "__main__":
     
     all_results = []
     
-    # 1️⃣ 검색 기반 크롤링 (다양성 확보)
-    print(f"🔍 검색 기반 크롤링: '{args.search_query}' (최대 {args.max_videos}개)")
+    # 1️⃣ 다중 검색 기반 크롤링 (카테고리별)
+    print("🔍 다중 검색 기반 크롤링")
+    
+    # 검색 쿼리 설정 (쿼리, 최대 영상 수)
+    search_queries = [
+        ("던파 가이드", 10),       # 던파 가이드 10개
+        ("던파 현질 가이드", 5),    # 던파 현질 가이드 5개
+        ("던파 나벨 공략", 5),      # 던파 나벨 공략 5개
+    ]
+    
     try:
-        search_results = crawl_youtube_search(args.search_query, args.max_videos, visited_urls)
+        search_results = crawl_youtube_multi_query(search_queries, visited_urls)
         all_results.extend(search_results)
-        save_results_append(search_results, "검색")
-        print(f"   ✅ 검색 결과: {len(search_results)}개 수집")
+        save_results_append(search_results, "다중검색")
+        print(f"\n   ✅ 다중 검색 결과: {len(search_results)}개 수집")
     except Exception as e:
-        print(f"   ⚠️ 검색 오류: {e}")
+        print(f"   ⚠️ 다중 검색 오류: {e}")
     
     # 2️⃣ 신뢰할 수 있는 채널들 (품질 보장)
     trusted_channels = [
@@ -348,6 +390,7 @@ if __name__ == "__main__":
     print()
     print(f"🎆 하이브리드 크롤링 완료!")
     print(f"📊 총 {len(all_results)}개 영상 수집 (자막 있는 영상만)")
+    print(f"📋 카테고리별 수집: 던파 가이드 10개, 현질 가이드 3개, 나벨 공략 5개")
     print(f"🔄 방문한 URL: {len(visited_urls)}개 (증분: {args.incremental})")
     print(f"💾 결과 저장 위치: {SAVE_PATH}")
     print(f"✅ YouTube 크롤링 완료: {len(all_results)}개 수집")

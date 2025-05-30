@@ -23,6 +23,8 @@ htmlcov/
 /data/raw/*.jsonl
 /data/merged/*.json
 /data/merged/*.jsonl
+/data/processd/*.json
+/data/processd/*.jsonl
 
 # 벡터 DB (용량이 크므로 제외)
 /vector_db/
@@ -58,3 +60,8 @@ Thumbs.db
 chroma.sqlite3
 chroma.sqlite3-shm
 chroma.sqlite3-wal
+
+# 테스트
+test.py
+test_jwt.py
+*.txt

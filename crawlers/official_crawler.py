@@ -30,7 +30,12 @@ EXCLUDE_KEYWORDS = [
 ]
 
 # 품질 점수 임계값 (이 점수 이상인 게시글만 저장)
-QUALITY_THRESHOLD = 35
+QUALITY_THRESHOLD = 30
+
+# ──────────────────────────────────────────────
+GUIDE_BASE   = "https://df.nexon.com/guide?no="
+GUIDE_IDS    = [1512, 1508, 1515, 1479, 1478, 1475, 1483, 1480, 1484, 1516, 1510, 1486, 1487, 1490, 1485, 1489, 1488]          # ← 필요하면 여기만 늘려 주세요
+GUIDE_QTHOLD = 25                                # guide도 저장할 최소 품질
 # ──────────────────────────────────────────────
 
 # 날짜 확인 함수
@@ -185,6 +190,56 @@ def crawl_post_content(post_url, session, visited_urls, depth=0, max_depth=2):
 
     return results
 
+def crawl_guide_page(guide_no, session):
+    """
+    단일 가이드 페이지 크롤링
+    - <article class="content gg_template"> 안의 전체 텍스트를 본문으로 사용
+    - 마지막 업데이트 일자를 date 필드에 저장 (YYYY-MM-DD)
+    """
+    url = f"{GUIDE_BASE}{guide_no}"
+    try:
+        resp = session.get(url, timeout=10)
+        resp.raise_for_status()
+    except requests.exceptions.RequestException:
+        return None
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    article = soup.select_one("article.content.gg_template")
+    if not article:
+        return None
+
+    # ① 제목
+    title_tag = article.find(["h1", "h2"])
+    title = title_tag.get_text(strip=True) if title_tag else f"[가이드] no={guide_no}"
+
+    # ② 본문 - 이미지 ALT 포함, <br> → \n
+    for br in article.find_all("br"):
+        br.replace_with("\n")
+    body_text = article.get_text("\n", strip=True)
+
+    # ③ 날짜
+    date_tag = article.select_one("div.last_update")
+    date_text = "[날짜 없음]"
+    if date_tag:
+        m = re.search(r"(\d{4}-\d{2}-\d{2})", date_tag.get_text())
+        if m:
+            date_text = m.group(1)
+
+    # ④ 품질 스코어 & 필터
+    score = calculate_content_score(body_text, title)
+    if score < GUIDE_QTHOLD:
+        return None
+
+    return build_item(
+        source="guide",
+        url=url,
+        title=title,
+        body=body_text,
+        date=date_text,
+        views=0,
+        likes=0
+    )
+
 # 📌 4. 전체 크롤링 실행
 def crawl_df(max_pages=2, max_depth=2, visited_urls=None, is_incremental=True):
     """공식 사이트 전체 크롤링 실행"""
@@ -229,6 +284,14 @@ def crawl_df(max_pages=2, max_depth=2, visited_urls=None, is_incremental=True):
             # 공지글 처리 상태 업데이트
             if not notice_processed:
                 notice_processed = True
+            
+        # ── 게시판 크롤링 끝난 뒤 ───────────────────
+        # ② 공식 가이드 크롤링
+        for gid in GUIDE_IDS:
+            item = crawl_guide_page(gid, session)
+            if item:
+                item["quality_score"] = 9.0
+                results.append(item)
 
         # 결과 요약
         elapsed_time = time.time() - start_time
@@ -246,4 +309,4 @@ def crawl_df(max_pages=2, max_depth=2, visited_urls=None, is_incremental=True):
 # 스크립트 직접 실행 시
 if __name__ == "__main__":
     # 테스트 실행
-    crawl_df(max_pages=1, max_depth=0)
+    crawl_df(max_pages=1, max_depth=1)

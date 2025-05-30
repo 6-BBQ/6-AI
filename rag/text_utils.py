@@ -10,22 +10,25 @@ class TextProcessor:
     
     @staticmethod
     def enhance_query_with_character(query: str, character_info: Optional[Dict]) -> str:
-        """캐릭터 정보로 검색 쿼리 강화 (FastAPI에서 변환된 키 사용)"""
+        """
+        캐릭터 정보로 검색 쿼리 강화 (단순화 버전)
+        필수적인 정보만 추가하여 노이즈 감소
+        """
         if not character_info:
             return query
+
+        # 기본 쿼리
+        enhanced_parts = [query]
         
-        enhancements = []
-        # FastAPI에서 변환된 'job' 키 사용
-        if job_info := character_info.get('job'):
-            enhancements.append(job_info)
-        if fame := character_info.get('fame'):
-            enhancements.append(str(fame))
+        if job := character_info.get("job"):
+            # 별칭 없이 직업명만 붙인다
+            enhanced_parts.append(job)
         
-        if enhancements:
-            enhanced_query = f"{' '.join(enhancements)} {query}"
-            print(f"[DEBUG] 쿼리 강화: '{query}' → '{enhanced_query}'")
-            return enhanced_query
-        return query
+        # 최종 조립
+        enhanced = " ".join(enhanced_parts)
+        print(f"[DEBUG] 쿼리 강화: '{query}' → '{enhanced}'")
+        return enhanced
+
     
     @staticmethod
     def format_docs_to_context_string(docs: List[Document], context_type: str) -> str:

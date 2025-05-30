@@ -17,7 +17,7 @@ SAVE_PATH = "data/raw/arca_raw.json"
 
 # 필터 키워드 (중요도에 따라 정렬)
 FILTER_KEYWORDS = [
-    "명성", "상급 던전", "스펙업", "장비", "파밍", "뉴비", "융합석", "중천", "세트",
+    "명성", "상급 던전", "스펙", "장비", "파밍", "뉴비", "융합석", "중천", "세트",
     "가이드", "에픽", "태초", "레기온", "레이드", "현질", "세리아", "마법부여", 
     "스킬트리", "종말의 숭배자", "베누스", "나벨"
 ]
@@ -29,7 +29,7 @@ EXCLUDE_KEYWORDS = [
 ]
 
 # 품질 점수 임계값 (이 점수 이상인 게시글만 저장)
-QUALITY_THRESHOLD = 33  # 아카라이브는 내용이 중간 정도의 길이가 많음
+QUALITY_THRESHOLD = 25  # 아카라이브는 내용이 중간 정도의 길이가 많음
 # ──────────────────────────────────────────────
 
 # 날짜 확인 함수
@@ -62,7 +62,7 @@ def get_new_scraper():
 # 📌 1. 게시글 리스트 추출 (한 페이지)
 def get_post_list(page_num):
     """아카라이브에서 게시글 목록 가져오기"""
-    url = f"{BASE_URL}/b/dunfa?mode=best&category=공략&p={page_num}"
+    url = f"{BASE_URL}/b/dunfa?category=공략&p={page_num}"
     try:
         scraper = get_new_scraper()
         resp = scraper.get(url, timeout=15)  # 아카라이브는 로딩이 느릴 수 있어 타임아웃 증가
