@@ -6,7 +6,6 @@ import os
 import time
 from typing import Dict, List, Optional, Any
 from pathlib import Path
-import torch
 
 # LLM & 임베딩
 from langchain_chroma import Chroma
