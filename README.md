@@ -174,18 +174,13 @@ python test.py
 
 ### AI/ML 모델
 - **Google Gemini**: LLM 및 임베딩 (메인)
-- **HuggingFace Transformers**: 한국어 특화 임베딩 (선택적)
 - **Cross-Encoder**: 검색 결과 재랭킹
 
 ### 데이터 수집
-- **BeautifulSoup4**: HTML 파싱
-- **Selenium**: 동적 웹페이지 크롤링
 - **CloudScraper**: Cloudflare 우회
-- **yt-dlp**: 유튜브 콘텐츠 추출 (선택적)
 
 ### 한국어 NLP
 - **Kiwi**: 한국어 형태소 분석
-- **BGE-M3-Ko**: 한국어 특화 임베딩 모델
 
 ## 📊 로깅 및 모니터링
 
