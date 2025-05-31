@@ -1,13 +1,9 @@
-# official_crawler.py (개선 버전)
 import time
-import json
 import requests
 import re
-from pathlib import Path
-from datetime import datetime
 from bs4 import BeautifulSoup
-from utils import (
-    build_item, clean_text, calculate_content_score, 
+from crawler_utils import (
+    build_item, calculate_content_score, 
     should_process_url, filter_by_keywords
 )
 

@@ -4,7 +4,6 @@
 """
 import os
 from pathlib import Path
-from typing import Optional
 from dotenv import load_dotenv
 
 # .env 파일 로드
@@ -49,13 +48,49 @@ class Config:
     # ================================
     VECTOR_DB_DIR: str = os.getenv("VECTOR_DB_DIR", "vector_db/chroma")
     CACHE_DIR: str = os.getenv("CACHE_DIR", "cache")
+    PROCESSED_DOCS_PATH: str = os.getenv(
+        "PROCESSED_DOCS_PATH", "data/processed/processed_docs.jsonl"
+    )
+    VECTORDB_CACHE_PATH: str = os.getenv(
+        "VECTORDB_CACHE_PATH", "vector_db/vectordb_cache.json"
+    )
+    JOB_EMBEDDINGS_PATH: str = os.getenv(
+        "JOB_EMBEDDINGS_PATH", "vector_db/job_embeddings.json"
+    )
+    JOB_NAMES_PATH: str = os.getenv(
+        "JOB_NAMES_PATH", "job_names.json"
+    )
+    EMBED_BATCH_SIZE: int = int(os.getenv("EMBED_BATCH_SIZE", "200"))
+    JOB_SIMILARITY_THRESHOLD: float = float(
+        os.getenv("JOB_SIMILARITY_THRESHOLD", "0.75")
+    )
     
     # ================================
     # 🕷️ 크롤링 설정
     # ================================
     DEFAULT_CRAWL_PAGES: int = int(os.getenv("DEFAULT_CRAWL_PAGES", "10"))
     DEFAULT_CRAWL_DEPTH: int = int(os.getenv("DEFAULT_CRAWL_DEPTH", "2"))
-    VISITED_URLS_FILE: str = os.getenv("VISITED_URLS_FILE", "data/visited_urls.json")
+    VISITED_URLS_PATH: str = os.getenv("VISITED_URLS_PATH", "data/visited_urls.json")
+    
+    # ================================
+    # 🕷️ 전처리 설정
+    # ================================
+    MERGED_DIR: str = os.getenv("MERGED_DIR", "data/merged")
+    PROCESSED_SAVE_PATH: str = os.getenv(
+        "PROCESSED_SAVE_PATH", "data/processed/processed_docs.jsonl"
+    )
+    PROCESSED_CACHE_PATH: str = os.getenv(
+        "PROCESSED_CACHE_PATH", "data/processed/processed_cache.json"
+    )
+    CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "1200"))
+    CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "150"))
+
+    # ================================
+    # 🕷️ 파이프라인 설정
+    # ================================
+    CRAWLER_SCRIPT: str = os.getenv("CRAWLER_SCRIPT", "crawlers/crawler.py")
+    PREPROCESS_SCRIPT: str = os.getenv("PREPROCESS_SCRIPT", "preprocessing/preprocess.py")
+    BUILD_VECTORDB_SCRIPT: str = os.getenv("BUILD_VECTORDB_SCRIPT", "vectorstore/build_vector_db.py")
     
     # ================================
     # ⚡ 성능 설정
@@ -63,7 +98,6 @@ class Config:
     CACHE_EXPIRY_SHORT: int = int(os.getenv("CACHE_EXPIRY_SHORT", "43200"))  # 12시간
     CACHE_EXPIRY_LONG: int = int(os.getenv("CACHE_EXPIRY_LONG", "86400"))    # 24시간
     DEVICE: str = os.getenv("DEVICE", "auto")
-    BATCH_SIZE: int = int(os.getenv("BATCH_SIZE", "32"))
     
     # ================================
     # 🔒 보안 설정
@@ -125,16 +159,17 @@ class Config:
     
     @classmethod
     def create_directories(cls):
-        """필요한 디렉토리들 생성"""
         directories = [
             cls.LOG_DIR,
             cls.CACHE_DIR,
             cls.VECTOR_DB_DIR,
-            Path(cls.VISITED_URLS_FILE).parent,
+            Path(cls.VISITED_URLS_PATH).parent,
+            Path(cls.PROCESSED_SAVE_PATH).parent,
+            Path(cls.PROCESSED_CACHE_PATH).parent,
+            cls.MERGED_DIR,
         ]
-        
-        for directory in directories:
-            Path(directory).mkdir(parents=True, exist_ok=True)
+        for d in directories:
+            Path(d).mkdir(parents=True, exist_ok=True)
     
     @classmethod
     def print_config_summary(cls):

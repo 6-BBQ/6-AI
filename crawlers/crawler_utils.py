@@ -1,10 +1,6 @@
-# utils.py 수정안
-import math, re, json, logging
+import re, logging
 from datetime import datetime, timezone
-from pathlib import Path
 from bs4 import BeautifulSoup
-from typing import Optional
-from rapidfuzz import process, fuzz
 
 # 로깅 설정
 logger = logging.getLogger("crawler")
@@ -66,13 +62,6 @@ def calculate_content_score(text, title=""):
 
 # ────────────────── 사이트별 정규화 기준 (현실적 수치) ──────────────────
 SITE_NORMALIZATION = {
-    "youtube": {
-        "views_base": 15_000,
-        "likes_base": 400,
-        "likes_ratio_range": (0.01, 0.04)
-    },
-
-    # 아카라이브
     "arca": {
         "views_base": 5_000,
         "likes_base": 20,
@@ -95,7 +84,7 @@ SITE_NORMALIZATION = {
 }
 
 # ────────────────── 우선순위 계산 ──────────────────
-_SRC_WEIGHT = {"official":1.0, "youtube":0.95, "arca":0.9, "dcinside":0.9}
+_SRC_WEIGHT = {"official":1.0, "arca":0.9, "dcinside":0.9}
 
 def _freshness_w(date: datetime, today: datetime) -> float:
     return max(0.0, 1 - (today - date).days/90)
@@ -161,30 +150,6 @@ def calc_quality_score(
     
     return round(total_score, 2)
 
-def load_yt_ids(path: str | Path) -> list[str]:
-    if not path:
-        return []
-    
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            ids = [line.strip() for line in f if line.strip() and not line.startswith("#")]
-            logger.info(f"✅ 유튜브 ID 파일 로드 성공: {len(ids)}개 ID 찾음")
-            return ids
-    except Exception as e:
-        logger.error(f"❌ 유튜브 ID 파일 로드 실패: {e}")
-        # 절대 경로로 시도
-        try:
-            project_root = Path(__file__).resolve().parents[1]
-            abs_path = project_root / path
-            logger.info(f"🔄 절대 경로로 재시도: {abs_path}")
-            with open(abs_path, "r", encoding="utf-8") as f:
-                ids = [line.strip() for line in f if line.strip() and not line.startswith("#")]
-                logger.info(f"✅ 유튜브 ID 파일 로드 성공: {len(ids)}개 ID 찾음")
-                return ids
-        except Exception as e2:
-            logger.error(f"❌ 절대 경로 시도도 실패: {e2}")
-            return []
-
 # ────────────────── 크롤러별 저장 함수 ──────────────────
 def save_official_data(data: list, append: bool = True):
     """공식 사이트 데이터 저장"""
@@ -197,10 +162,6 @@ def save_dc_data(data: list, append: bool = True):
 def save_arca_data(data: list, append: bool = True):
     """아카라이브 데이터 저장"""
     save_crawler_data("data/raw/arca_raw.json", data, append)
-
-def save_youtube_data(data: list, append: bool = True):
-    """YouTube 데이터 저장"""
-    save_crawler_data("data/raw/youtube_raw.json", data, append)
 
 # ────────────────── 결과 dict 빌더 ──────────────────
 def build_item(

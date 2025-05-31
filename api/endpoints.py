@@ -1,18 +1,15 @@
 import time
-from datetime import datetime
 from typing import Dict, Any
 from fastapi import APIRouter, HTTPException, status, Depends
-from fastapi.responses import JSONResponse
 from typing import Optional, List, Dict, Any
-import json
 
 from .models import (
     ChatRequest, ChatResponse, ErrorResponse, 
     HealthResponse, SourceDocument
 )
 from .auth import verify_jwt_token
-from rag import get_structured_rag_answer, get_structured_rag_service
-from utils import get_logger, log_execution_time
+from rag import get_structured_rag_answer
+from utils import get_logger
 
 # 라우터 생성
 router = APIRouter()

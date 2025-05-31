@@ -1,12 +1,8 @@
-# dc_crawler.py (개선 버전)
-import json
 import time
 import requests
-from datetime import datetime
-from pathlib import Path
 from bs4 import BeautifulSoup
-from utils import (
-    build_item, clean_text, calculate_content_score,
+from crawler_utils import (
+    build_item, calculate_content_score,
     should_process_url, filter_by_keywords
 )
 

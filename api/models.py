@@ -6,17 +6,6 @@ class SourceDocument(BaseModel):
     url: Optional[str] = Field(None, description="문서 URL")
     source: Optional[str] = Field(None, description="소스 타입")
 
-# ────────────── 실행 시간 모델 ──────────────
-class SearchTimes(BaseModel):
-    internal_search: float = Field(..., description="내부 검색 시간")
-
-
-class ExecutionTimes(BaseModel):
-    total: float = Field(..., description="전체 소요 시간")
-    llm: float = Field(..., description="LLM 응답 생성 시간")
-    search: SearchTimes = Field(..., description="검색 세부 소요 시간")
-
-
 # ────────────── 요청·응답 모델 ──────────────
 class ChatRequest(BaseModel):
     query: str = Field(..., description="사용자 질문")

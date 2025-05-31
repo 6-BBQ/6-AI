@@ -5,7 +5,6 @@ from fastapi.exceptions import HTTPException
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
-import os
 
 from .endpoints import router
 from .models import ErrorResponse
