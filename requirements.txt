@@ -45,10 +45,6 @@ beautifulsoup4>=4.12.3
 cloudscraper>=1.2.71
 selenium>=4.26.0
 
-# ──────────── YouTube 처리 (선택적) ────────────
-yt-dlp>=2024.11.4
-youtube-transcript-api>=0.6.2
-
 # ──────────── 데이터 처리 ────────────
 numpy>=2.0.0
 pandas>=2.2.0
