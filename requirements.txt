@@ -1,64 +1,65 @@
 # ==========================================
 # 6-AI 프로젝트 Python 의존성 패키지 목록
+# 업데이트: 2025-06-01 - 사용하지 않는 패키지 제거 및 버전 최신화
 # ==========================================
 
 # ──────────── 기본 Python 패키지 ────────────
-python-dotenv>=1.0.0
+python-dotenv>=1.0.1
 pathlib>=1.0.1
 
 # ──────────── FastAPI & 웹서버 ────────────
-fastapi>=0.104.0
-uvicorn[standard]>=0.24.0
-python-multipart>=0.0.6
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.9
 
 # ──────────── JWT 인증 ────────────
-pyjwt>=2.8.0
+pyjwt>=2.9.0
 
-# ──────────── LLM & AI 프레임워크 ────────────
-# LangChain 코어
-langchain>=0.1.0
-langchain-community>=0.0.13
+# ──────────── Google Gemini (메인 LLM + 임베딩) ────────────
+google-generativeai>=0.8.3
+langchain-google-genai>=2.0.0
 
-# Google Gemini (LLM 전용)
-langchain-google-genai>=1.0.0
+# ──────────── LangChain 프레임워크 ────────────
+langchain>=0.3.0
+langchain-community>=0.3.0
+langchain-chroma>=0.1.4
 
-# HuggingFace 임베딩 (한국어 특화)
-langchain-huggingface>=0.0.3
+# ──────────── HuggingFace (선택적 - 한국어 특화 임베딩용) ────────────
+langchain-huggingface>=0.1.0
+sentence-transformers>=3.2.0
+transformers>=4.46.0
+torch>=2.4.0
 
 # ──────────── 벡터 데이터베이스 ────────────
-langchain-chroma>=0.0.1
-chromadb>=0.4.22
-
-# ──────────── 임베딩 & 트랜스포머 ────────────
-# HuggingFace 임베딩 & 트랜스포머
-sentence-transformers>=2.7.0  # BGE 모델 지원
-transformers>=4.40.0  # BGE-M3 지원
-torch>=2.0.0
-safetensors>=0.4.0   # 모델 로딩 최적화
-accelerate>=0.20.0   # GPU 가속
+chromadb>=0.5.20
 
 # ──────────── 한국어 NLP ────────────
 kiwipiepy>=0.18.0
 
 # ──────────── 시스템 모니터링 ────────────
-psutil>=5.9.0
+psutil>=6.1.0
 
 # ──────────── 크롤링 & 웹 스크래핑 ────────────
-requests>=2.28.0
-beautifulsoup4>=4.12.2
+requests>=2.32.0
+beautifulsoup4>=4.12.3
 cloudscraper>=1.2.71
-selenium>=4.15.0
+selenium>=4.26.0
 
-# ──────────── YouTube 처리 ────────────
-yt-dlp>=2024.11.0
-youtube-transcript-api>=0.6.1
+# ──────────── YouTube 처리 (선택적) ────────────
+yt-dlp>=2024.11.4
+youtube-transcript-api>=0.6.2
 
 # ──────────── 데이터 처리 ────────────
-numpy>=1.24.0
-pandas>=2.0.0
+numpy>=2.0.0
+pandas>=2.2.0
 
 # ──────────── Pydantic (호환성) ────────────
-pydantic>=2.0.0,<3.0.0
+pydantic>=2.9.0,<3.0.0
 
 # ──────────── 모델 다운로드 & 캐싱 최적화 ────────────
-huggingface-hub>=0.20.0  # 모델 다운로드 최적화
+huggingface-hub>=0.26.0
+
+# ──────────── 개발/디버깅 도구 (선택적) ────────────
+# 개발 환경에서만 필요한 경우 주석 해제
+# jupyter>=1.1.0
+# ipython>=8.27.0

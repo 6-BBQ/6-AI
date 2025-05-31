@@ -15,7 +15,7 @@ import torch
 
 from langchain.docstore.document import Document
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
+# 임베딩 함수는 config.create_embedding_function()을 사용
 
 # ───────────────────────────────────────────────
 # 1️⃣ 기본 설정
@@ -209,11 +209,8 @@ def classify_existing_documents():
         log.error("❌ 직업 임베딩을 찾을 수 없습니다. 먼저 벡터DB를 구축하세요.")
         return
     
-    embedding_fn = HuggingFaceEmbeddings(
-        model_name=model_name,
-        model_kwargs={"device": "cuda" if torch.cuda.is_available() else "cpu"},
-        encode_kwargs={"normalize_embeddings": True}
-    )
+    # config에서 임베딩 함수 생성
+    embedding_fn = config.create_embedding_function()
     
     if not PROCESSED_DOCS_PATH.exists():
         log.error(f"❌ 전처리된 문서 파일이 없습니다: {PROCESSED_DOCS_PATH}")
@@ -321,14 +318,10 @@ def load_docs(path: Path, existing_ids: Set[str] = None) -> List[Document]:
 
 def main():
     """벡터 DB 구축 메인 함수 (증분 모드)"""
-    log.info("🚀 증분 모드 - 한국어 BGE-m3-ko 기반 임베딩 시작")
+    log.info(f"🚀 증분 모드 - {config.EMBEDDING_TYPE} {EMBED_MODEL_NAME} 기반 임베딩 시작")
     
-    # 임베딩 함수 정의
-    embedding_fn = HuggingFaceEmbeddings(
-        model_name=EMBED_MODEL_NAME,
-        model_kwargs={"device": "cuda" if torch.cuda.is_available() else "cpu"},
-        encode_kwargs={"normalize_embeddings": True}
-    )
+    # config에서 임베딩 함수 생성
+    embedding_fn = config.create_embedding_function()
     
     # 직업별 임베딩 구축 및 저장
     job_names = load_job_names()

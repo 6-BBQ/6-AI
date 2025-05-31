@@ -39,7 +39,8 @@ class Config:
     # 🤖 RAG 시스템 설정
     # ================================
     ENABLE_WEB_GROUNDING: bool = os.getenv("ENABLE_WEB_GROUNDING", "true").lower() == "true"
-    EMBED_MODEL_NAME: str = os.getenv("EMBED_MODEL_NAME", "dragonkue/bge-m3-ko")
+    EMBED_MODEL_NAME: str = os.getenv("EMBED_MODEL_NAME", "models/text-embedding-004")
+    EMBEDDING_TYPE: str = os.getenv("EMBEDDING_TYPE", "gemini")  # gemini, models/text-embedding-004 // huggingface, dragonkue/bge-m3-ko
     CROSS_ENCODER_MODEL: str = os.getenv("CROSS_ENCODER_MODEL", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1")
     LLM_MODEL_NAME: str = os.getenv("LLM_MODEL_NAME", "gemini-2.5-pro-preview-05-06")
     
@@ -228,6 +229,26 @@ class Config:
         return {"User-Agent": cls.CRAWLER_USER_AGENT}
     
     @classmethod
+    def create_embedding_function(cls):
+        """임베딩 타입에 따라 적절한 임베딩 함수 생성"""
+        if cls.EMBEDDING_TYPE.lower() == "gemini":
+            from langchain_google_genai import GoogleGenerativeAIEmbeddings
+            return GoogleGenerativeAIEmbeddings(
+                model=cls.EMBED_MODEL_NAME,
+                google_api_key=cls.GEMINI_API_KEY
+            )
+        elif cls.EMBEDDING_TYPE.lower() == "huggingface":
+            from langchain_huggingface import HuggingFaceEmbeddings
+            device = cls.get_device()
+            return HuggingFaceEmbeddings(
+                model_name=cls.EMBED_MODEL_NAME,
+                model_kwargs={"device": device},
+                encode_kwargs={"normalize_embeddings": True}
+            )
+        else:
+            raise ValueError(f"지원하지 않는 임베딩 타입: {cls.EMBEDDING_TYPE}")
+    
+    @classmethod
     def create_directories(cls):
         directories = [
             cls.LOG_DIR,
@@ -252,7 +273,7 @@ class Config:
         print(f"🌐 포트: {cls.PORT}")
         print(f"📊 로그 레벨: {cls.LOG_LEVEL}")
         print(f"🤖 LLM 모델: {cls.LLM_MODEL_NAME}")
-        print(f"🧠 임베딩 모델: {cls.EMBED_MODEL_NAME}")
+        print(f"🧠 임베딩 모델: {cls.EMBED_MODEL_NAME} ({cls.EMBEDDING_TYPE})")
         print(f"🔍 웹 그라운딩: {'ON' if cls.ENABLE_WEB_GROUNDING else 'OFF'}")
         print(f"💻 디바이스: {cls.get_device()}")
         print(f"📁 벡터 DB: {cls.VECTOR_DB_DIR}")

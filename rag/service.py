@@ -9,7 +9,6 @@ from pathlib import Path
 import torch
 
 # LLM & 임베딩
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 
 # Google Gemini SDK for grounding
@@ -25,7 +24,7 @@ from .cache_utils import CacheManager
 from .text_utils import TextProcessor
 from .retrievers import MetadataAwareRetriever
 from .search_factory import SearcherFactory
-from utils import get_logger, log_execution_time
+from utils import get_logger
 from config import config  # 중앙화된 설정 사용
 
 
@@ -108,17 +107,13 @@ class StructuredRAGService:
         # 그라운딩 활성화 여부 설정
         self.logger.info(f"웹 검색 그라운딩: {'ON' if self.enable_web_grounding else 'OFF'}")
         
-        # 임베딩 함수 초기화
-        device = config.get_device()
-        self.logger.info(f"임베딩 모델 로드: {self.embed_model_name} (디바이스: {device})")
+        # 임베딩 함수 초기화 (config 설정에 따라 동적 생성)
+        embedding_type = config.EMBEDDING_TYPE
+        self.logger.info(f"임베딩 모델 로드: {self.embed_model_name} (타입: {embedding_type})")
         
         try:
-            self.embedding_fn = HuggingFaceEmbeddings(
-                model_name=self.embed_model_name,
-                model_kwargs={"device": device},
-                encode_kwargs={"normalize_embeddings": True}
-            )
-            self.logger.debug("임베딩 모델 로드 성공")
+            self.embedding_fn = config.create_embedding_function()
+            self.logger.debug(f"임베딩 모델 로드 성공 ({embedding_type})")
         except Exception as e:
             self.logger.error(f"임베딩 모델 로드 실패: {e}")
             raise
@@ -171,7 +166,7 @@ class StructuredRAGService:
         self.prompt = PromptTemplate(
             input_variables=["internal_context", "question", "character_info", "conversation_history"],
             template="""
-당신은 "아라드 최고의 공략 네비게이터" AI 챗봇입니다. 사용자의 던전앤파이터 캐릭터 성장 및 게임 플레이에 필요한 종합 공략, 최신 정보, 맞춤형 가이드를 정확하고 효율적으로 제공하세요.
+당신은 "던파 최고의 공략 네비게이터" AI 챗봇입니다. 사용자의 던전앤파이터 캐릭터 성장 및 게임 플레이에 필요한 종합 공략, 최신 정보, 맞춤형 가이드를 정확하고 효율적으로 제공하세요.
 
 ※ 반드시 아래 제공된 정보와 지침에 따라서만 답변해야 합니다.
 
