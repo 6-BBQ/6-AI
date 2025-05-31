@@ -24,6 +24,31 @@
 
 ## 🚀 빠른 시작
 
+### 🎯 **원클릭 배포** (추천)
+
+```bash
+# Linux/Mac
+bash deploy.sh
+
+# Windows  
+deploy.bat
+```
+
+위 스크립트가 자동으로 다음을 처리합니다:
+- 환경 설정 및 검증
+- 가상환경 생성 및 의존성 설치
+- 데이터 파이프라인 실행
+- API 서버 시작
+
+### 🔍 **서비스 상태 확인**
+
+```bash
+# 비포 전 상태 체크
+python health_check.py
+```
+
+### 🛠️ **수동 설치** (선택사항)
+
 ### 1. 프로젝트 설치
 ```bash
 # 저장소 클론
@@ -70,6 +95,7 @@ python vectorstore/build_vector_db.py
 ```bash
 # FastAPI 서버 시작
 python -m api.main
+```
 
 ### 5. API 테스트
 ```bash

@@ -61,7 +61,6 @@ chroma.sqlite3
 chroma.sqlite3-shm
 chroma.sqlite3-wal
 
-# 테스트
+# 테스트 (임시 테스트 파일만 제외)
 test.py
 test_jwt.py
-*.txt
