@@ -3,6 +3,7 @@ RAG 시스템을 위한 텍스트 및 검색 처리 유틸리티
 """
 from typing import Dict, List, Optional
 from langchain.docstore.document import Document
+from utils import get_logger
 
 
 class TextProcessor:
@@ -14,6 +15,8 @@ class TextProcessor:
         캐릭터 정보로 검색 쿼리 강화 (단순화 버전)
         필수적인 정보만 추가하여 노이즈 감소
         """
+        logger = get_logger(__name__)
+        
         if not character_info:
             return query
 
@@ -26,7 +29,7 @@ class TextProcessor:
         
         # 최종 조립
         enhanced = " ".join(enhanced_parts)
-        print(f"[DEBUG] 쿼리 강화: '{query}' → '{enhanced}'")
+        logger.debug(f"쿼리 강화: '{query}' → '{enhanced}'")
         return enhanced
 
     

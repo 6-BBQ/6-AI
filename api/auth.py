@@ -2,7 +2,7 @@ import os
 import jwt
 import base64
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 from fastapi import HTTPException, status
 from dotenv import load_dotenv
 

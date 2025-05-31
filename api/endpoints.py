@@ -1,28 +1,34 @@
 import time
-from datetime import datetime
 from typing import Dict, Any
 from fastapi import APIRouter, HTTPException, status, Depends
-from fastapi.responses import JSONResponse
 from typing import Optional, List, Dict, Any
-import json
 
 from .models import (
     ChatRequest, ChatResponse, ErrorResponse, 
     HealthResponse, SourceDocument
 )
 from .auth import verify_jwt_token
-from rag import get_structured_rag_answer, get_structured_rag_service
+from rag import get_structured_rag_answer
+from utils import get_logger
 
 # 라우터 생성
 router = APIRouter()
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest): # ChatRequest 모델 사용
+    logger = get_logger(__name__)
+    start_time = time.time()
+    
+    # 요청 로깅
+    logger.info(f"새로운 채팅 요청 - 질문: {request.query[:100]}{'...' if len(request.query) > 100 else ''}")
     
     # 1. JWT 토큰 검증
     try:
+        logger.debug("JWT 토큰 검증 시작")
         verify_jwt_token(request.jwtToken)
+        logger.debug("JWT 토큰 검증 완료")
     except Exception as e:
+        logger.warning(f"JWT 인증 실패: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"JWT 인증 실패: {str(e)}"
@@ -87,15 +93,16 @@ async def chat_endpoint(request: ChatRequest): # ChatRequest 모델 사용
 
     try:
         # 1) 캐릭터 정보 변환
-        # request.characterData가 ChatRequest 모델에 정의되어 있다고 가정
+        logger.debug("캐릭터 정보 변환 시작")
         transformed_char_info = transform_character_data(request.characterData)
         
         if transformed_char_info:
-            print(f"[INFO] 변환된 캐릭터 정보: {transformed_char_info}")
+            logger.info(f"변환된 캐릭터 정보: {transformed_char_info}")
         else:
-            print("[INFO] 캐릭터 정보 없음 또는 변환 실패")
+            logger.info("캐릭터 정보 없음 또는 변환 실패")
 
         # 2) 이전 대화 기록 처리
+        logger.debug("이전 대화 기록 처리 시작")
         conversation_history = []
         if request.beforeQuestionList and request.beforeResponseList:
             # 두 리스트의 길이가 다를 수 있으므로 최소 길이로 맞춤
@@ -105,17 +112,22 @@ async def chat_endpoint(request: ChatRequest): # ChatRequest 모델 사용
                     {"role": "user", "content": request.beforeQuestionList[i]},
                     {"role": "assistant", "content": request.beforeResponseList[i]}
                 ])
-            print(f"[INFO] 이전 대화 기록: {len(conversation_history)//2}개 대화")
+            logger.info(f"이전 대화 기록: {len(conversation_history)//2}개 대화")
         else:
-            print("[INFO] 이전 대화 기록 없음")
+            logger.info("이전 대화 기록 없음")
 
         # 3) RAG 호출 시, 변환된 character_info와 conversation_history 전달
-        print(f"[INFO] RAG 질문 처리: {request.query}")
+        logger.info(f"RAG 질문 처리 시작: {request.query}")
+        rag_start_time = time.time()
+        
         rag_result = get_structured_rag_answer(
             request.query,
             character_info=transformed_char_info, # 변환된 딕셔너리 전달
             conversation_history=conversation_history # 이전 대화 기록 전달
         )
+        
+        rag_time = time.time() - rag_start_time
+        logger.info(f"RAG 처리 완료: {rag_time:.2f}초")
         
         # 3. 출처 정보 변환
         sources = []
@@ -159,17 +171,23 @@ async def chat_endpoint(request: ChatRequest): # ChatRequest 모델 사용
 
         )
         
-        print(f"[INFO] RAG 처리 완료: {response.execution_time:.2f}초")
+        total_time = time.time() - start_time
+        logger.info(f"RAG 처리 완료 - 전체: {total_time:.2f}초, RAG: {response.execution_time:.2f}초")
+        logger.info(f"응답 길이: {len(response.answer)}문자, 참고 문서: {len(sources)}개")
+        
         return response
         
-    except HTTPException:
+    except HTTPException as e:
         # JWT 인증 에러 등 FastAPI의 HTTPException은 그대로 전파
+        logger.warning(f"HTTP 예외 발생: {e.status_code} - {e.detail}")
         raise
         
     except Exception as e:
-        import traceback # 상세한 에러 로깅을 위해
-        print(f"[ERROR] RAG 처리 중 예기치 않은 오류: {str(e)}")
-        print(traceback.format_exc()) # 스택 트레이스 출력
+        total_time = time.time() - start_time
+        logger.error(
+            f"RAG 처리 중 예기치 않은 오류 ({total_time:.2f}초): {str(e)}",
+            exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"RAG 처리 중 오류가 발생했습니다: {str(e)}"

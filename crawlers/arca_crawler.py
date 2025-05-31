@@ -1,35 +1,26 @@
-# arca_crawler.py (개선 버전)
-import json
 import time
 import cloudscraper
-from datetime import datetime
+import sys
 from pathlib import Path
+from datetime import datetime
 from bs4 import BeautifulSoup, NavigableString
-from utils import (
-    build_item, clean_text, calculate_content_score,
+
+# 상위 디렉토리의 config 및 crawler_utils import
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from config import config
+from crawler_utils import (
+    build_item, calculate_content_score,
     should_process_url, filter_by_keywords
 )
 
 # ──────────────────────────────────────────────
-HEADERS = {"User-Agent": "Mozilla/5.0"}
-BASE_URL = "https://arca.live"
-SAVE_PATH = "data/raw/arca_raw.json"
-
-# 필터 키워드 (중요도에 따라 정렬)
-FILTER_KEYWORDS = [
-    "명성", "상급 던전", "스펙", "장비", "파밍", "뉴비", "융합석", "중천", "세트",
-    "가이드", "에픽", "태초", "레기온", "레이드", "현질", "세리아", "마법부여", 
-    "스킬트리", "종말의 숭배자", "베누스", "나벨"
-]
-
-# 제외 키워드
-EXCLUDE_KEYWORDS = [
-    "이벤트", "선계", "커스텀", "카지노", "기록실", "서고", "바칼", "이스핀즈", 
-    "어둑섬", "깨어난 숲", "ㅅㅂ", "ㅂㅅ", "ㅄ", "ㅗ", "시발", "씨발", "병신", "좆"
-]
-
-# 품질 점수 임계값 (이 점수 이상인 게시글만 저장)
-QUALITY_THRESHOLD = 25  # 아카라이브는 내용이 중간 정도의 길이가 많음
+# config에서 설정 가져오기
+HEADERS = config.get_crawler_headers()
+BASE_URL = config.ARCA_BASE_URL
+SAVE_PATH = config.ARCA_RAW_PATH
+FILTER_KEYWORDS = config.get_filter_keywords()
+EXCLUDE_KEYWORDS = config.get_exclude_keywords()
+QUALITY_THRESHOLD = config.ARCA_QUALITY_THRESHOLD
 # ──────────────────────────────────────────────
 
 # 날짜 확인 함수
@@ -65,7 +56,7 @@ def get_post_list(page_num):
     url = f"{BASE_URL}/b/dunfa?category=공략&p={page_num}"
     try:
         scraper = get_new_scraper()
-        resp = scraper.get(url, timeout=15)  # 아카라이브는 로딩이 느릴 수 있어 타임아웃 증가
+        resp = scraper.get(url, timeout=config.ARCA_CRAWLER_TIMEOUT)
         soup = BeautifulSoup(resp.text, "html.parser")
         posts = soup.select("a.vrow")
         return posts
@@ -104,7 +95,7 @@ def crawl_post_content(post_url, visited_urls, depth=0, max_depth=2):
     try:
         # 게시글 내용 가져오기
         scraper = get_new_scraper()
-        resp = scraper.get(post_url, timeout=15)
+        resp = scraper.get(post_url, timeout=config.ARCA_CRAWLER_TIMEOUT)
         soup = BeautifulSoup(resp.text, "html.parser")
 
         # 제목 추출
@@ -188,7 +179,7 @@ def crawl_post_content(post_url, visited_urls, depth=0, max_depth=2):
                     results.extend(crawl_post_content(full_link, visited_urls, depth + 1, max_depth))
 
         # 요청 간 딜레이 (아카라이브는 더 긴 딜레이 필요)
-        time.sleep(0.1)
+        time.sleep(config.ARCA_CRAWLER_DELAY)
 
     except Exception as e:
         pass
@@ -242,7 +233,7 @@ def crawl_arca(max_pages=2, max_depth=2, visited_urls=None, is_incremental=True)
         avg_time_per_post = elapsed_time / len(results) if results else 0
 
         # 결과 저장 (증분 처리 지원)
-        from utils import save_arca_data
+        from crawler_utils import save_arca_data
         save_arca_data(results, append=is_incremental)
         
     except Exception as e:

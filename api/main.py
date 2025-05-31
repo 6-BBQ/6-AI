@@ -8,26 +8,42 @@ from contextlib import asynccontextmanager
 
 from .endpoints import router
 from .models import ErrorResponse
+from utils import get_logger, log_system_info
+from config import config  # 중앙화된 설정 사용
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """앱 시작 및 종료 이벤트를 처리하는 lifespan 함수"""
-    print("🚀 DF RAG API 서버 시작 중...")
-    print("📚 RAG 시스템 워밍업...")
-
+    # 로거 초기화
+    logger = get_logger(__name__)
+    
+    logger.info("🚀 DF RAG API 서버 시작 중...")
+    logger.info("📚 RAG 시스템 워밍업...")
+    
+    # 시스템 정보 로깅
+    if config.LOG_SYSTEM_INFO:
+        log_system_info(logger)
+    
+    # 환경 설정 로깅
+    logger.info(f"실행 환경: {config.ENVIRONMENT}")
+    logger.info(f"로그 레벨: {config.LOG_LEVEL}")
+    logger.info(f"웹 그라운딩: {'ON' if config.ENABLE_WEB_GROUNDING else 'OFF'}")
+    logger.info(f"디바이스: {config.get_device()}")
+    
     try:
         from rag import get_structured_rag_service
         get_structured_rag_service()  # 싱글톤 인스턴스 생성
-        print("✅ RAG 시스템 준비 완료")
+        logger.info("✅ RAG 시스템 준비 완료")
     except Exception as e:
-        print(f"❌ RAG 시스템 초기화 실패: {e}")
+        logger.error(f"❌ RAG 시스템 초기화 실패: {e}", exc_info=True)
+        raise  # 초기화 실패 시 서버 시작 중단
 
     # 서버 실행 유지
     yield
 
     # 종료 시 로직
-    print("🛑 DF RAG API 서버 종료 중...")
+    logger.info("🛑 DF RAG API 서버 종료 중...")
 
 
 # FastAPI 앱 생성
@@ -40,10 +56,10 @@ app = FastAPI(
     lifespan=lifespan,  # 👈 lifespan 적용
 )
 
-# CORS 설정 (스프링 백엔드와 통신을 위해)
+# CORS 설정 (config에서 가져오기)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 운영 환경에서는 도메인 제한 필요
+    allow_origins=config.get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -66,6 +82,9 @@ async def root():
 # 전역 예외 처리
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
+    logger = get_logger(__name__)
+    logger.warning(f"HTTP 예외 발생 [{request.method} {request.url}]: {exc.status_code} - {exc.detail}")
+    
     return JSONResponse(
         status_code=exc.status_code,
         content=ErrorResponse(
@@ -76,7 +95,12 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
-    print(f"[ERROR] 예상치 못한 오류: {str(exc)}")
+    logger = get_logger(__name__)
+    logger.error(
+        f"예상치 못한 오류 [{request.method} {request.url}]: {str(exc)}",
+        exc_info=True
+    )
+    
     return JSONResponse(
         status_code=500,
         content=ErrorResponse(
@@ -91,6 +115,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "api.main:app",
         host="0.0.0.0",
-        port=8000,
-        log_level="info"
+        port=config.PORT,
+        log_level=config.LOG_LEVEL.lower()
     )

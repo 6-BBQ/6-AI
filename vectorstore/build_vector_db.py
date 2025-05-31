@@ -2,31 +2,31 @@ from __future__ import annotations
 
 import json
 import logging
-import os
+import sys
 import shutil
 import numpy as np
 from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from config import config
 from typing import Dict, List, Set, Tuple
 from datetime import datetime
 
-from dotenv import load_dotenv
 import torch
 
 from langchain.docstore.document import Document
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
+# 임베딩 함수는 config.create_embedding_function()을 사용
 
 # ───────────────────────────────────────────────
 # 1️⃣ 기본 설정
-load_dotenv()
-PROCESSED_PATH = Path("data/processed/processed_docs.jsonl")
-CHROMA_DIR = "vector_db/chroma"
-VECTORDB_CACHE = Path("vector_db/vectordb_cache.json")
-JOB_EMBEDDINGS_PATH = Path("vector_db/job_embeddings.json")
-JOB_NAMES_PATH = Path("job_names.json")
-BATCH_SIZE = 200
-MODEL_NAME = "dragonkue/bge-m3-ko"
-JOB_SIMILARITY_THRESHOLD = 0.75
+PROCESSED_DOCS_PATH       = Path(config.PROCESSED_DOCS_PATH)
+VECTOR_DB_DIR             = config.VECTOR_DB_DIR
+VECTORDB_CACHE_PATH       = Path(config.VECTORDB_CACHE_PATH)
+JOB_EMBEDDINGS_PATH       = Path(config.JOB_EMBEDDINGS_PATH)
+JOB_NAMES_PATH            = Path(config.JOB_NAMES_PATH)
+EMBED_MODEL_NAME          = config.EMBED_MODEL_NAME
+EMBED_BATCH_SIZE          = config.EMBED_BATCH_SIZE
+JOB_SIMILARITY_THRESHOLD  = config.JOB_SIMILARITY_THRESHOLD
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,8 +40,8 @@ log = logging.getLogger("build_vector_db")
 def load_vectordb_cache() -> Set[str]:
     """벡터DB에 이미 추가된 문서 ID 집합 로드"""
     try:
-        if VECTORDB_CACHE.exists():
-            with VECTORDB_CACHE.open('r', encoding='utf-8') as f:
+        if VECTORDB_CACHE_PATH.exists():
+            with VECTORDB_CACHE_PATH.open('r', encoding='utf-8') as f:
                 data = json.load(f)
                 return set(data.get('processed_doc_ids', []))
     except Exception as e:
@@ -51,14 +51,14 @@ def load_vectordb_cache() -> Set[str]:
 def save_vectordb_cache(processed_ids: Set[str]) -> None:
     """벡터DB 캐시 저장"""
     try:
-        VECTORDB_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        VECTORDB_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
         cache_data = {
             'processed_doc_ids': list(processed_ids),
             'last_updated': datetime.now().isoformat(),
-            'model_name': MODEL_NAME,
+            'model_name': EMBED_MODEL_NAME,
             'total_docs': len(processed_ids)
         }
-        with VECTORDB_CACHE.open('w', encoding='utf-8') as f:
+        with VECTORDB_CACHE_PATH.open('w', encoding='utf-8') as f:
             json.dump(cache_data, f, ensure_ascii=False, indent=2)
     except Exception as e:
         log.warning(f"캐시 저장 실패: {e}")
@@ -128,7 +128,7 @@ def save_job_embeddings(job_embeddings: Dict[str, List[float]]) -> None:
         
         save_data = {
             'job_embeddings': serializable_embeddings,
-            'model_name': MODEL_NAME,
+            'model_name': EMBED_MODEL_NAME,
             'threshold': JOB_SIMILARITY_THRESHOLD,
             'created_at': datetime.now().isoformat(),
             'total_jobs': len(serializable_embeddings)
@@ -153,14 +153,14 @@ def load_job_embeddings() -> Tuple[Dict[str, np.ndarray], str]:
             for job_name, embedding_list in data['job_embeddings'].items():
                 job_embeddings[job_name] = np.array(embedding_list)
                 
-            model_name = data.get('model_name', MODEL_NAME)
+            model_name = data.get('model_name', EMBED_MODEL_NAME)
             log.info(f"📂 저장된 직업 임베딩 로드: {len(job_embeddings)}개 직업")
             return job_embeddings, model_name
             
     except Exception as e:
         log.warning(f"직업 임베딩 로드 실패: {e}")
     
-    return {}, MODEL_NAME
+    return {}, EMBED_MODEL_NAME
 
 def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
     """코사인 유사도 계산"""
@@ -209,21 +209,18 @@ def classify_existing_documents():
         log.error("❌ 직업 임베딩을 찾을 수 없습니다. 먼저 벡터DB를 구축하세요.")
         return
     
-    embedding_fn = HuggingFaceEmbeddings(
-        model_name=model_name,
-        model_kwargs={"device": "cuda" if torch.cuda.is_available() else "cpu"},
-        encode_kwargs={"normalize_embeddings": True}
-    )
+    # config에서 임베딩 함수 생성
+    embedding_fn = config.create_embedding_function()
     
-    if not PROCESSED_PATH.exists():
-        log.error(f"❌ 전처리된 문서 파일이 없습니다: {PROCESSED_PATH}")
+    if not PROCESSED_DOCS_PATH.exists():
+        log.error(f"❌ 전처리된 문서 파일이 없습니다: {PROCESSED_DOCS_PATH}")
         return
     
     classified_docs = []
     total_classified = 0
     total_processed = 0
     
-    with PROCESSED_PATH.open(encoding="utf-8") as f:
+    with PROCESSED_DOCS_PATH.open(encoding="utf-8") as f:
         for line_num, line in enumerate(f, 1):
             try:
                 raw: Dict = json.loads(line)
@@ -263,12 +260,12 @@ def classify_existing_documents():
                 continue
     
     if classified_docs:
-        backup_path = PROCESSED_PATH.with_suffix('.backup.jsonl')
-        if PROCESSED_PATH.exists():
-            shutil.copy2(PROCESSED_PATH, backup_path)
+        backup_path = PROCESSED_DOCS_PATH.with_suffix('.backup.jsonl')
+        if PROCESSED_DOCS_PATH.exists():
+            shutil.copy2(PROCESSED_DOCS_PATH, backup_path)
             log.info(f"💾 기존 파일 백업: {backup_path}")
         
-        with PROCESSED_PATH.open('w', encoding='utf-8') as f:
+        with PROCESSED_DOCS_PATH.open('w', encoding='utf-8') as f:
             for doc in classified_docs:
                 f.write(json.dumps(doc, ensure_ascii=False) + '\\n')
         
@@ -321,14 +318,10 @@ def load_docs(path: Path, existing_ids: Set[str] = None) -> List[Document]:
 
 def main():
     """벡터 DB 구축 메인 함수 (증분 모드)"""
-    log.info("🚀 증분 모드 - 한국어 BGE-m3-ko 기반 임베딩 시작")
+    log.info(f"🚀 증분 모드 - {config.EMBEDDING_TYPE} {EMBED_MODEL_NAME} 기반 임베딩 시작")
     
-    # 임베딩 함수 정의
-    embedding_fn = HuggingFaceEmbeddings(
-        model_name=MODEL_NAME,
-        model_kwargs={"device": "cuda" if torch.cuda.is_available() else "cpu"},
-        encode_kwargs={"normalize_embeddings": True}
-    )
+    # config에서 임베딩 함수 생성
+    embedding_fn = config.create_embedding_function()
     
     # 직업별 임베딩 구축 및 저장
     job_names = load_job_names()
@@ -336,7 +329,7 @@ def main():
         existing_job_embeddings, existing_model = load_job_embeddings()
         
         if (not existing_job_embeddings or 
-            existing_model != MODEL_NAME or
+            existing_model != EMBED_MODEL_NAME or
             set(job_names) != set(existing_job_embeddings.keys())):
             
             log.info("🔄 직업별 임베딩 새로 구축 중...")
@@ -350,7 +343,7 @@ def main():
     
     # 벡터DB 초기화
     vectordb = Chroma(
-        persist_directory=CHROMA_DIR,
+        persist_directory=VECTOR_DB_DIR,
         embedding_function=embedding_fn,
     )
     
@@ -361,11 +354,11 @@ def main():
     log.info(f"🔄 증분 모드: 기존 처리된 문서 {len(existing_ids)}개")
     
     # 문서 로드
-    if not PROCESSED_PATH.exists():
-        log.error(f"❌ 전처리된 문서 파일이 없습니다: {PROCESSED_PATH}")
+    if not PROCESSED_DOCS_PATH.exists():
+        log.error(f"❌ 전처리된 문서 파일이 없습니다: {PROCESSED_DOCS_PATH}")
         return
     
-    all_docs = load_docs(PROCESSED_PATH, existing_ids)
+    all_docs = load_docs(PROCESSED_DOCS_PATH, existing_ids)
     
     if not all_docs:
         log.info("✅ 처리할 새 문서가 없습니다")
@@ -379,9 +372,9 @@ def main():
     processed_count = 0
     new_doc_ids = set()
     
-    for i in range(0, total, BATCH_SIZE):
-        batch = all_docs[i:i + BATCH_SIZE]
-        batch_num = i // BATCH_SIZE + 1
+    for i in range(0, total, EMBED_BATCH_SIZE):
+        batch = all_docs[i:i + EMBED_BATCH_SIZE]
+        batch_num = i // EMBED_BATCH_SIZE + 1
         log.info(f"📦 배치 {batch_num}: {len(batch)}개 문서 처리 중...")
         
         try:
@@ -395,7 +388,7 @@ def main():
             
             log.info(f"✅ 배치 {batch_num} 완료 ({processed_count}/{total})")
             
-            if i + BATCH_SIZE < total:
+            if i + EMBED_BATCH_SIZE < total:
                 import time
                 time.sleep(0.5)
                 
@@ -410,10 +403,10 @@ def main():
         log.info(f"💾 캐시 업데이트: 총 {len(updated_ids)}개 문서 ID 저장")
     
     # 완료 메시지
-    log.info(f"🎉 벡터 DB 저장 완료 → {CHROMA_DIR}")
+    log.info(f"🎉 벡터 DB 저장 완료 → {VECTOR_DB_DIR}")
     log.info(f"📈 새로 추가된 문서: {processed_count}개")
     log.info(f"📊 전체 문서 수: {len(existing_ids) + len(new_doc_ids)}개")
-    log.info(f"🧠 사용 모델: {MODEL_NAME}")
+    log.info(f"🧠 사용 모델: {EMBED_MODEL_NAME}")
 
 # ───────────────────────────────────────────────
 

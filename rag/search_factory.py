@@ -6,6 +6,7 @@ from langchain.docstore.document import Document
 from langchain_community.retrievers import BM25Retriever
 from langchain_community.cross_encoders import HuggingFaceCrossEncoder
 from langchain_chroma import Chroma
+from utils import get_logger
 
 
 class SearcherFactory:
@@ -14,7 +15,8 @@ class SearcherFactory:
     @staticmethod
     def create_bm25_data_from_vectordb(vectordb: Chroma) -> List[Document]:
         """VectorDB에서 BM25용 데이터 추출"""
-        print("🔄 VectorDB에서 BM25용 데이터 추출 중...")
+        logger = get_logger(__name__)
+        logger.info("🔄 VectorDB에서 BM25용 데이터 추출 중...")
         
         store_data = vectordb.get(include=["documents", "metadatas"])
         docs_for_bm25 = []
@@ -39,7 +41,7 @@ class SearcherFactory:
             
             docs_for_bm25.append(Document(page_content=enhanced_content, metadata=meta))
         
-        print(f"✅ BM25용 문서 {len(docs_for_bm25)}개 준비 완료")
+        logger.info(f"✅ BM25용 문서 {len(docs_for_bm25)}개 준비 완료")
         return docs_for_bm25
     
     @staticmethod

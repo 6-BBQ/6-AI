@@ -1,35 +1,25 @@
-# dc_crawler.py (개선 버전)
-import json
 import time
 import requests
-from datetime import datetime
+import sys
 from pathlib import Path
 from bs4 import BeautifulSoup
-from utils import (
-    build_item, clean_text, calculate_content_score,
+
+# 상위 디렉토리의 config 및 crawler_utils import
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from config import config
+from crawler_utils import (
+    build_item, calculate_content_score,
     should_process_url, filter_by_keywords
 )
 
 # ──────────────────────────────────────────────
-HEADERS = {"User-Agent": "Mozilla/5.0"}
-BASE_URL = "https://gall.dcinside.com"
-SAVE_PATH = "data/raw/dc_raw.json"
-
-# 필터 키워드 (중요도에 따라 정렬)
-FILTER_KEYWORDS = [
-    "명성", "상급 던전", "스펙", "장비", "파밍", "뉴비", "융합석", "중천", "세트",
-    "가이드", "에픽", "태초", "레기온", "레이드", "현질", "세리아", "마법부여", 
-    "스킬트리", "종말의 숭배자", "베누스", "나벨"
-]
-
-# 제외 키워드
-EXCLUDE_KEYWORDS = [
-    "이벤트", "선계", "커스텀", "카지노", "기록실", "서고", "바칼", "이스핀즈", 
-    "어둑섬", "깨어난 숲", "ㅅㅂ", "ㅂㅅ", "ㅄ", "ㅗ", "시발", "씨발", "병신", "좆"
-]
-
-# 품질 점수 임계값 (이 점수 이상인 게시글만 저장)
-QUALITY_THRESHOLD = 20  # 디시는 글이 짧은 경향이 있어 낮게 설정
+# config에서 설정 가져오기
+HEADERS = config.get_crawler_headers()
+BASE_URL = config.DC_BASE_URL
+SAVE_PATH = config.DC_RAW_PATH
+FILTER_KEYWORDS = config.get_filter_keywords()
+EXCLUDE_KEYWORDS = config.get_exclude_keywords()
+QUALITY_THRESHOLD = config.DC_QUALITY_THRESHOLD
 # ──────────────────────────────────────────────
 
 # 날짜 확인 함수
@@ -45,9 +35,9 @@ def is_valid_date(date_text):
 # 📌 1. 게시글 리스트 추출 (한 페이지)
 def get_post_list(page_num, session):
     """디시인사이드에서 게시글 목록 가져오기"""
-    url = f"{BASE_URL}/mgallery/board/lists/?id=dfip&sort_type=N&search_head=10&page={page_num}"
+    url = f"{BASE_URL}/mgallery/board/lists/?id=dfip&sort_type=N&exception_mode=recommend&search_head=10&page={page_num}"
     try:
-        resp = session.get(url, timeout=10)
+        resp = session.get(url, timeout=config.DC_CRAWLER_TIMEOUT)
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
         posts = soup.select("tr.ub-content.us-post")
@@ -80,7 +70,7 @@ def crawl_post_content(post_url, session, visited_urls, depth=0, max_depth=2):
     
     try:
         # 게시글 내용 가져오기
-        resp_post = session.get(post_url, timeout=10)
+        resp_post = session.get(post_url, timeout=config.DC_CRAWLER_TIMEOUT)
         resp_post.raise_for_status()
         soup = BeautifulSoup(resp_post.text, "html.parser")
 
@@ -156,7 +146,7 @@ def crawl_post_content(post_url, session, visited_urls, depth=0, max_depth=2):
                     results.extend(crawl_post_content(full_link, session, visited_urls, depth + 1, max_depth))
 
         # 요청 간 딜레이
-        time.sleep(0.05)
+        time.sleep(config.DC_CRAWLER_DELAY)
 
     except requests.exceptions.RequestException as e:
         pass
@@ -218,7 +208,7 @@ def crawl_dcinside(max_pages=2, max_depth=2, visited_urls=None, is_incremental=T
         avg_time_per_post = elapsed_time / len(results) if results else 0
 
         # 결과 저장 (증분 처리 지원)
-        from utils import save_dc_data
+        from crawler_utils import save_dc_data
         save_dc_data(results, append=is_incremental)
         
     except Exception as e:

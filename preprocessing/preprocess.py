@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sys
 import hashlib
-import os
 from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from config import config
 from typing import Any, Dict, List, Set
 from datetime import datetime
 
@@ -14,11 +16,11 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 # ─────────────────────────────────────────────────────────────
 # 1️⃣ 설정
-MERGED_DIR = Path("data/merged")      # 통합된 크롤링 결과 폴더
-SAVE_PATH = Path("data/processed/processed_docs.jsonl")
-PROCESSED_CACHE = Path("data/processed/processed_cache.json")  # 처리된 파일 캐시
-CHUNK_SIZE = 1200
-CHUNK_OVERLAP = 150
+MERGED_DIR           = Path(config.MERGED_DIR)
+PROCESSED_SAVE_PATH  = Path(config.PROCESSED_SAVE_PATH)
+PROCESSED_CACHE_PATH = Path(config.PROCESSED_CACHE_PATH)
+CHUNK_SIZE           = config.CHUNK_SIZE
+CHUNK_OVERLAP        = config.CHUNK_OVERLAP
 
 # 약어 → 정식 용어 매핑
 DNF_TERMS = {
@@ -52,8 +54,8 @@ def get_file_hash(file_path: Path) -> str:
 def load_processed_cache() -> Dict[str, str]:
     """처리된 파일 캐시 로드 (file_path -> file_hash)"""
     try:
-        if PROCESSED_CACHE.exists():
-            with PROCESSED_CACHE.open('r', encoding='utf-8') as f:
+        if PROCESSED_CACHE_PATH.exists():
+            with PROCESSED_CACHE_PATH.open('r', encoding='utf-8') as f:
                 return json.load(f)
     except Exception as e:
         log.warning(f"캐시 로드 실패: {e}")
@@ -62,8 +64,8 @@ def load_processed_cache() -> Dict[str, str]:
 def save_processed_cache(cache: Dict[str, str]) -> None:
     """처리된 파일 캐시 저장"""
     try:
-        PROCESSED_CACHE.parent.mkdir(parents=True, exist_ok=True)
-        with PROCESSED_CACHE.open('w', encoding='utf-8') as f:
+        PROCESSED_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with PROCESSED_CACHE_PATH.open('w', encoding='utf-8') as f:
             json.dump(cache, f, ensure_ascii=False, indent=2)
     except Exception as e:
         log.warning(f"캐시 저장 실패: {e}")
@@ -92,8 +94,8 @@ def load_existing_processed_docs() -> Set[str]:
     """기존 처리된 문서 ID 집합 로드"""
     existing_ids = set()
     try:
-        if SAVE_PATH.exists():
-            with SAVE_PATH.open('r', encoding='utf-8') as f:
+        if PROCESSED_SAVE_PATH.exists():
+            with PROCESSED_SAVE_PATH.open('r', encoding='utf-8') as f:
                 for line in f:
                     data = json.loads(line)
                     existing_ids.add(data.get('id', ''))
@@ -232,7 +234,7 @@ def main(incremental: bool = False) -> None:
         separators=["\n\n", "\n", ".", "!", "?", " ", ""],
     )
 
-    out_f = SAVE_PATH.open("w", encoding="utf-8")
+    out_f = PROCESSED_SAVE_PATH.open("w", encoding="utf-8")
 
     processed = 0
     for idx, doc in enumerate(raw_docs):
@@ -272,7 +274,7 @@ def main(incremental: bool = False) -> None:
             processed += 1
 
     out_f.close()
-    log.info("🚀 %d개 청크 저장 → %s", processed, SAVE_PATH)
+    log.info("🚀 %d개 청크 저장 → %s", processed, PROCESSED_SAVE_PATH)
     
     # 처리 통계 출력
     log.info("📊 처리 통계:")
@@ -356,12 +358,12 @@ if __name__ == "__main__":
     
     # 강제 모드 처리
     if args.force:
-        if SAVE_PATH.exists():
-            SAVE_PATH.unlink()
-            log.info(f"🗑️ 기존 결과 파일 삭제: {SAVE_PATH}")
-        if PROCESSED_CACHE.exists():
-            PROCESSED_CACHE.unlink() 
-            log.info(f"🗑️ 기존 캐시 파일 삭제: {PROCESSED_CACHE}")
+        if PROCESSED_SAVE_PATH.exists():
+            PROCESSED_SAVE_PATH.unlink()
+            log.info(f"🗑️ 기존 결과 파일 삭제: {PROCESSED_SAVE_PATH}")
+        if PROCESSED_CACHE_PATH.exists():
+            PROCESSED_CACHE_PATH.unlink() 
+            log.info(f"🗑️ 기존 캐시 파일 삭제: {PROCESSED_CACHE_PATH}")
     
     # 시작 메시지
     mode_emoji = "🔄" if args.incremental else "📋"
@@ -370,7 +372,7 @@ if __name__ == "__main__":
     log.info(f"   - 청크 크기: {CHUNK_SIZE}")
     log.info(f"   - 청크 겹침: {CHUNK_OVERLAP}")
     log.info(f"   - 입력 디렉토리: {MERGED_DIR}")
-    log.info(f"   - 출력 파일: {SAVE_PATH}")
+    log.info(f"   - 출력 파일: {PROCESSED_SAVE_PATH}")
     
     try:
         main(incremental=args.incremental)
