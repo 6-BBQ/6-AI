@@ -18,6 +18,10 @@ pyjwt>=2.9.0
 # ──────────── Google Gemini (메인 LLM + 임베딩) ────────────
 google-generativeai>=0.8.3
 langchain-google-genai>=2.0.0
+google-genai>=1.18.0
+
+# ──────────── 검색 알고리즘 ────────────
+rank_bm25>=0.2.2
 
 # ──────────── LangChain 프레임워크 ────────────
 langchain>=0.3.0

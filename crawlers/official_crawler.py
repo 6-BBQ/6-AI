@@ -288,7 +288,7 @@ def crawl_df(max_pages=2, max_depth=2, visited_urls=None, is_incremental=True):
         avg_time_per_post = elapsed_time / len(results) if results else 0
 
         # 결과 저장 (증분 처리 지원)
-        from utils import save_official_data
+        from crawler_utils import save_official_data
         save_official_data(results, append=is_incremental)
         
     except Exception as e:

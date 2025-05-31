@@ -82,6 +82,8 @@ class Config:
     CRAWLER_USER_AGENT: str = os.getenv("CRAWLER_USER_AGENT", "Mozilla/5.0")
     CRAWLER_TIMEOUT: int = int(os.getenv("CRAWLER_TIMEOUT", "10"))
     CRAWLER_DELAY: float = float(os.getenv("CRAWLER_DELAY", "0.05"))
+    DC_CRAWLER_TIMEOUT: int = int(os.getenv("DC_CRAWLER_TIMEOUT", "30"))
+    DC_CRAWLER_DELAY: float = float(os.getenv("DC_CRAWLER_DELAY", "3"))
     ARCA_CRAWLER_DELAY: float = float(os.getenv("ARCA_CRAWLER_DELAY", "0.1"))
     ARCA_CRAWLER_TIMEOUT: int = int(os.getenv("ARCA_CRAWLER_TIMEOUT", "15"))
     

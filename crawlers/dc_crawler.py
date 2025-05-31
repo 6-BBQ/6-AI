@@ -35,9 +35,9 @@ def is_valid_date(date_text):
 # 📌 1. 게시글 리스트 추출 (한 페이지)
 def get_post_list(page_num, session):
     """디시인사이드에서 게시글 목록 가져오기"""
-    url = f"{BASE_URL}/mgallery/board/lists/?id=dfip&sort_type=N&search_head=10&page={page_num}"
+    url = f"{BASE_URL}/mgallery/board/lists/?id=dfip&sort_type=N&exception_mode=recommend&search_head=10&page={page_num}"
     try:
-        resp = session.get(url, timeout=config.CRAWLER_TIMEOUT)
+        resp = session.get(url, timeout=config.DC_CRAWLER_TIMEOUT)
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
         posts = soup.select("tr.ub-content.us-post")
@@ -70,7 +70,7 @@ def crawl_post_content(post_url, session, visited_urls, depth=0, max_depth=2):
     
     try:
         # 게시글 내용 가져오기
-        resp_post = session.get(post_url, timeout=config.CRAWLER_TIMEOUT)
+        resp_post = session.get(post_url, timeout=config.DC_CRAWLER_TIMEOUT)
         resp_post.raise_for_status()
         soup = BeautifulSoup(resp_post.text, "html.parser")
 
@@ -146,7 +146,7 @@ def crawl_post_content(post_url, session, visited_urls, depth=0, max_depth=2):
                     results.extend(crawl_post_content(full_link, session, visited_urls, depth + 1, max_depth))
 
         # 요청 간 딜레이
-        time.sleep(config.CRAWLER_DELAY)
+        time.sleep(config.DC_CRAWLER_DELAY)
 
     except requests.exceptions.RequestException as e:
         pass
