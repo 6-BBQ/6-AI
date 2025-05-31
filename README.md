@@ -85,6 +85,10 @@ ENABLE_WEB_GROUNDING=true # 웹 검색 그라운딩 활성화
 # 전체 파이프라인 실행 (크롤링 → 전처리 → 벡터 DB 구축)
 python pipeline.py
 
+python pipeline.py                 # 증분 처리 (기본)
+python pipeline.py --full          # 전체 재처리
+python pipeline.py --skip-crawl    # 전처리부터 실행
+
 # 또는 단계별 실행
 python crawlers/crawler.py --pages 20 --merge --incremental
 python preprocessing/preprocess.py
