@@ -1,6 +1,12 @@
 import re, logging
 from datetime import datetime, timezone
 from bs4 import BeautifulSoup
+import sys
+from pathlib import Path
+
+# 상위 디렉토리의 config 모듈 import
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from config import config
 
 # 로깅 설정
 logger = logging.getLogger("crawler")
@@ -60,28 +66,10 @@ def calculate_content_score(text, title=""):
     
     return min(100, score)
 
-# ────────────────── 사이트별 정규화 기준 (현실적 수치) ──────────────────
-SITE_NORMALIZATION = {
-    "arca": {
-        "views_base": 5_000,
-        "likes_base": 20,
-        "likes_ratio_range": (0.003, 0.015)
-    },
-
-    # 디시인사이드
-    "dcinside": {
-        "views_base": 15_000,
-        "likes_base": 30,
-        "likes_ratio_range": (0.0015, 0.008)
-    },
-
-    # 공식 홈페이지
-    "official": {
-        "views_base": 120_000,
-        "likes_base": 50,
-        "likes_ratio_range": (0.0002, 0.002)
-    }
-}
+# ────────────────── 사이트별 정규화 기준 (config에서 가져옴) ──────────────────
+def get_site_normalization():
+    """config에서 사이트별 정규화 설정을 가져옴"""
+    return config.get_site_normalization()
 
 # ────────────────── 우선순위 계산 ──────────────────
 _SRC_WEIGHT = {"official":1.0, "arca":0.9, "dcinside":0.9}
@@ -93,15 +81,17 @@ def _engage_w(views: int, likes: int, source: str) -> float:
     """사이트별 정규화된 인기도 점수 계산 (현실적 비율 반영)"""
     import math
     
-    # 사이트별 정규화 기준 가져오기
-    norm = SITE_NORMALIZATION.get(source, {"views_base": 15000, "likes_base": 30})
+    # config에서 사이트별 정규화 기준 가져오기
+    site_normalization = get_site_normalization()
+    norm = site_normalization.get(source, {"views_base": 15000, "likes_base": 30})
     views_base = norm["views_base"]
     likes_base = norm["likes_base"]
     
     # 현실적인 좋아요/조회수 비율 체크
     if views > 0:
         actual_ratio = likes / views
-        expected_range = norm.get("likes_ratio_range", (0.001, 0.010))
+        expected_range = norm.get("likes_ratio_range", [0.001, 0.010])  # JSON에서 가져오므로 list
+        expected_range = tuple(expected_range)  # tuple로 변환
         
         # 비율이 현실적 범위를 벗어나면 페널티 적용
         ratio_penalty = 1.0
@@ -153,15 +143,15 @@ def calc_quality_score(
 # ────────────────── 크롤러별 저장 함수 ──────────────────
 def save_official_data(data: list, append: bool = True):
     """공식 사이트 데이터 저장"""
-    save_crawler_data("data/raw/official_raw.json", data, append)
+    save_crawler_data(config.OFFICIAL_RAW_PATH, data, append)
 
 def save_dc_data(data: list, append: bool = True):
     """디시인사이드 데이터 저장"""
-    save_crawler_data("data/raw/dc_raw.json", data, append)
+    save_crawler_data(config.DC_RAW_PATH, data, append)
 
 def save_arca_data(data: list, append: bool = True):
     """아카라이브 데이터 저장"""
-    save_crawler_data("data/raw/arca_raw.json", data, append)
+    save_crawler_data(config.ARCA_RAW_PATH, data, append)
 
 # ────────────────── 결과 dict 빌더 ──────────────────
 def build_item(

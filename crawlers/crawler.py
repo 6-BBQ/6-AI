@@ -18,7 +18,7 @@ from official_crawler import crawl_df
 from arca_crawler import crawl_arca
 from utils import get_logger
 
-# 증분 크롤링 기록 파일
+# 증분 크롤링 기록 파일 (config에서 가져옴)
 VISITED_URLS_PATH = config.VISITED_URLS_PATH
 
 # ────────────────────────────────────────────────────────────
