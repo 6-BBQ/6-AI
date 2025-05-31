@@ -11,8 +11,6 @@ from config import config
 from typing import Dict, List, Set, Tuple
 from datetime import datetime
 
-import torch
-
 from langchain.docstore.document import Document
 from langchain_chroma import Chroma
 # 임베딩 함수는 config.create_embedding_function()을 사용

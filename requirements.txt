@@ -16,7 +16,6 @@ python-multipart>=0.0.9
 pyjwt>=2.9.0
 
 # ──────────── Google Gemini (메인 LLM + 임베딩) ────────────
-google-generativeai>=0.8.3
 langchain-google-genai>=2.0.0
 google-genai>=1.18.0
 
@@ -27,12 +26,6 @@ rank_bm25>=0.2.2
 langchain>=0.3.0
 langchain-community>=0.3.0
 langchain-chroma>=0.1.4
-
-# ──────────── HuggingFace (선택적 - 한국어 특화 임베딩용) ────────────
-langchain-huggingface>=0.1.0
-sentence-transformers>=3.2.0
-transformers>=4.46.0
-torch>=2.4.0
 
 # ──────────── 벡터 데이터베이스 ────────────
 chromadb>=0.5.20
@@ -45,19 +38,13 @@ psutil>=6.1.0
 
 # ──────────── 크롤링 & 웹 스크래핑 ────────────
 requests>=2.32.0
-beautifulsoup4>=4.12.3
 cloudscraper>=1.2.71
-selenium>=4.26.0
 
 # ──────────── 데이터 처리 ────────────
 numpy>=2.0.0
-pandas>=2.2.0
 
 # ──────────── Pydantic (호환성) ────────────
 pydantic>=2.9.0,<3.0.0
-
-# ──────────── 모델 다운로드 & 캐싱 최적화 ────────────
-huggingface-hub>=0.26.0
 
 # ──────────── 개발/디버깅 도구 (선택적) ────────────
 # 개발 환경에서만 필요한 경우 주석 해제
