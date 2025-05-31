@@ -3,21 +3,26 @@ import sys
 import argparse
 import textwrap
 from datetime import datetime
+from utils import get_logger
 
 def run_script(path: str, args: list[str] = []):
-    print(f"\n🟡 실행 중: {path} {' '.join(args)}")
+    logger = get_logger("pipeline")
+    logger.info(f"🟡 실행 중: {path} {' '.join(args)}")
     try:
         result = subprocess.run(
             [sys.executable, path] + args,
             check=True
         )
-        print(f"✅ 완료: {path}")
+        logger.info(f"✅ 완료: {path}")
     except subprocess.CalledProcessError as e:
-        print(f"❌ 오류 발생 ({path}): {e}")
+        logger.error(f"❌ 오류 발생 ({path}): {e}")
         sys.exit(1)
 
 
 def main():
+    # 로거 초기화
+    logger = get_logger(__name__)
+    
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description="던파 스펙업 AI 파이프라인 (증분 처리 지원)",
@@ -115,21 +120,21 @@ def main():
     mode_emoji = "🔄" if args.incremental else "🚀"
     mode_name = "증분" if args.incremental else "전체"
     
-    print(f"\n{mode_emoji} 던파 스펙업 파이프라인 {mode_name} 실행 시작")
-    print(f"   📅 시작 시간: {datetime.now():%Y-%m-%d %H:%M:%S}")
-    print(f"   🔧 모드: {mode_name} 처리")
-    print(f"   📊 페이지 수: {args.pages}")
-    print(f"   🔍 깊이: {args.depth}")
-    print(f"   🎥 YouTube 모드: {args.yt_mode}")
-    print(f"   📹 YouTube 최대: {args.yt_max}")
+    logger.info(f"\n{mode_emoji} 던파 스펙업 파이프라인 {mode_name} 실행 시작")
+    logger.info(f"   📅 시작 시간: {datetime.now():%Y-%m-%d %H:%M:%S}")
+    logger.info(f"   🔧 모드: {mode_name} 처리")
+    logger.info(f"   📊 페이지 수: {args.pages}")
+    logger.info(f"   🔍 깊이: {args.depth}")
+    logger.info(f"   🎥 YouTube 모드: {args.yt_mode}")
+    logger.info(f"   📹 YouTube 최대: {args.yt_max}")
     
     pipeline_start = datetime.now()
     
     # 1️⃣ 크롤링 단계
     if not args.skip_crawl:
-        print("\n" + "="*50)
-        print("1️⃣ 크롤링 단계")
-        print("="*50)
+        logger.info("\n" + "="*50)
+        logger.info("1️⃣ 크롤링 단계")
+        logger.info("="*50)
         
         crawl_args = [
             "--pages", str(args.pages),
@@ -146,13 +151,13 @@ def main():
             
         run_script("crawlers/crawler.py", crawl_args)
     else:
-        print("\n⏭️ 크롤링 단계 건너뛰기")
+        logger.info("\n⏭️ 크롤링 단계 건너뛰기")
 
     # 2️⃣ 전처리 단계
     if not args.skip_preprocess:
-        print("\n" + "="*50)
-        print("2️⃣ 전처리 단계")
-        print("="*50)
+        logger.info("\n" + "="*50)
+        logger.info("2️⃣ 전처리 단계")
+        logger.info("="*50)
         
         preprocess_args = []
         
@@ -164,13 +169,13 @@ def main():
             
         run_script("preprocessing/preprocess.py", preprocess_args)
     else:
-        print("\n⏭️ 전처리 단계 건너뛰기")
+        logger.info("\n⏭️ 전처리 단계 건너뛰기")
 
     # 3️⃣ 벡터 DB 구축 단계
     if not args.skip_vectordb:
-        print("\n" + "="*50)
-        print("3️⃣ 벡터 DB 구축 단계")
-        print("="*50)
+        logger.info("\n" + "="*50)
+        logger.info("3️⃣ 벡터 DB 구축 단계")
+        logger.info("="*50)
         
         vectordb_args = []
         
@@ -182,17 +187,17 @@ def main():
             
         run_script("vectorstore/build_vector_db.py", vectordb_args)
     else:
-        print("\n⏭️ 벡터 DB 구축 단계 건너뛰기")
+        logger.info("\n⏭️ 벡터 DB 구축 단계 건너뛰기")
 
     # 완료 메시지
     pipeline_end = datetime.now()
     total_time = (pipeline_end - pipeline_start).total_seconds()
     
-    print("\n" + "="*50)
-    print(f"🎉 전체 파이프라인 완료! ({mode_name} 모드)")
-    print(f"   📅 완료 시간: {pipeline_end:%Y-%m-%d %H:%M:%S}")
-    print(f"   ⏱️ 총 소요 시간: {total_time:.1f}초 ({total_time/60:.1f}분)")
-    print("="*50)
+    logger.info("\n" + "="*50)
+    logger.info(f"🎉 전체 파이프라인 완료! ({mode_name} 모드)")
+    logger.info(f"   📅 완료 시간: {pipeline_end:%Y-%m-%d %H:%M:%S}")
+    logger.info(f"   ⏱️ 총 소요 시간: {total_time:.1f}초 ({total_time/60:.1f}분)")
+    logger.info("="*50)
 
 
 if __name__ == "__main__":

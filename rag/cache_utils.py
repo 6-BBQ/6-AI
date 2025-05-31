@@ -6,6 +6,7 @@ import pickle
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
+from utils import get_logger
 
 
 class CacheManager:
@@ -22,6 +23,7 @@ class CacheManager:
         self.cache_dir.mkdir(exist_ok=True)
         self.expiry_short = expiry_short
         self.expiry_long = expiry_long
+        self.logger = get_logger(__name__)
     
     def generate_cache_key(self, base_content: str, character_info: Optional[Dict] = None) -> str:
         """캐시 키 생성 (FastAPI에서 변환된 캐릭터 정보 포함 가능)"""
@@ -53,25 +55,25 @@ class CacheManager:
             file_age = time.time() - cache_file.stat().st_mtime
             if file_age < expiry_seconds:
                 try:
-                    print(f"🔄 캐시된 {item_name} 로딩: {cache_file_name}")
+                    self.logger.debug(f"🔄 캐시된 {item_name} 로딩: {cache_file_name}")
                     with open(cache_file, 'rb') as f: 
                         item = pickle.load(f)
-                    print(f"✅ {item_name} 캐시 로드 완료")
+                    self.logger.debug(f"✅ {item_name} 캐시 로드 완료")
                     return item
                 except Exception as e:
-                    print(f"⚠️ {item_name} 캐시 로드 실패 ({cache_file_name}): {e}. 재생성합니다.")
+                    self.logger.warning(f"⚠️ {item_name} 캐시 로드 실패 ({cache_file_name}): {e}. 재생성합니다.")
         
         # 캐시가 없거나 만료되었으면 새로 생성
-        print(f"🔄 {item_name} 생성 중 ({cache_file_name})...")
+        self.logger.info(f"🔄 {item_name} 생성 중 ({cache_file_name})...")
         item = creation_func()
         
         # 생성된 항목을 캐시에 저장
         try:
             with open(cache_file, 'wb') as f: 
                 pickle.dump(item, f)
-            print(f"✅ {item_name} 캐시 저장 완료: {cache_file}")
+            self.logger.debug(f"✅ {item_name} 캐시 저장 완료: {cache_file}")
         except Exception as e:
-            print(f"⚠️ {item_name} 캐시 저장 실패 ({cache_file_name}): {e}")
+            self.logger.warning(f"⚠️ {item_name} 캐시 저장 실패 ({cache_file_name}): {e}")
         
         return item
     
@@ -88,7 +90,8 @@ class CacheManager:
                     with open(cache_file, 'rb') as f: 
                         return pickle.load(f)
                 except Exception as e:
-                    print(f"⚠️ {cache_type} 검색 캐시 로드 실패: {e}")
+                    self.logger.warning(f"⚠️ {cache_type} 검색 캐시 로드 실패: {e}")
+                    return None
         
         return None
     
@@ -101,5 +104,6 @@ class CacheManager:
         try:
             with open(cache_file, 'wb') as f: 
                 pickle.dump(result, f)
+            self.logger.debug(f"캐시 저장 완료: {cache_type}_{cache_key}")
         except Exception as e:
-            print(f"⚠️ {cache_type} 검색 캐시 저장 실패: {e}")
+            self.logger.warning(f"⚠️ {cache_type} 검색 캐시 저장 실패: {e}")

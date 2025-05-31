@@ -6,7 +6,6 @@ import os
 import time
 from typing import Dict, List, Optional, Any
 from pathlib import Path
-from dotenv import load_dotenv
 import torch
 
 # LLM & 임베딩
@@ -26,84 +25,120 @@ from .cache_utils import CacheManager
 from .text_utils import TextProcessor
 from .retrievers import MetadataAwareRetriever
 from .search_factory import SearcherFactory
-
-load_dotenv()
+from utils import get_logger, log_execution_time
+from config import config  # 중앙화된 설정 사용
 
 
 class StructuredRAGService:
     """구조화된 RAG 서비스 클래스"""
 
-    # --- 상수 정의 ---
-    CACHE_DIR_NAME = "cache"
-    VECTOR_DB_DIR = "vector_db/chroma"
-    EMBED_MODEL_NAME = "dragonkue/bge-m3-ko"
-    BM25_CACHE_FILE = "bm25_retriever.pkl"
-    CROSS_ENCODER_CACHE_FILE = "cross_encoder.pkl"
-    LLM_MODEL_NAME = "gemini-2.5-pro-preview-05-06"
-    CROSS_ENCODER_MODEL_HF = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
-    
-    # 그라운딩 활성화 설정 (환경변수로 제어 가능)
-    ENABLE_WEB_GROUNDING = os.getenv("ENABLE_WEB_GROUNDING", "true").lower() == "true"
-
-    CACHE_EXPIRY_SHORT = 60 * 60 * 12  # 12시간
-    CACHE_EXPIRY_LONG = 60 * 60 * 24   # 24시간
-
     def __init__(self):
         """RAG 서비스 초기화"""
+        self.logger = get_logger(__name__)
+        self.logger.info("=== RAG 서비스 초기화 시작 ===")
+        
+        # 설정값들을 config에서 가져오기
+        self.cache_dir = Path(config.CACHE_DIR)
+        self.vector_db_dir = config.VECTOR_DB_DIR
+        self.embed_model_name = config.EMBED_MODEL_NAME
+        self.cross_encoder_model_hf = config.CROSS_ENCODER_MODEL
+        self.llm_model_name = config.LLM_MODEL_NAME
+        self.enable_web_grounding = config.ENABLE_WEB_GROUNDING
+        self.cache_expiry_short = config.CACHE_EXPIRY_SHORT
+        self.cache_expiry_long = config.CACHE_EXPIRY_LONG
+        
+        # 캐시 파일명들
+        self.bm25_cache_file = "bm25_retriever.pkl"
+        self.cross_encoder_cache_file = "cross_encoder.pkl"
+        
+        start_time = time.time()
+        
         self._setup_environment()
         self._initialize_utilities()
         self._initialize_core_components()
         self._initialize_retrievers()
         self._setup_llm_and_prompt()
+        
+        total_time = time.time() - start_time
+        self.logger.info(f"=== RAG 서비스 초기화 완료 ({total_time:.2f}초) ===")
 
     def _setup_environment(self):
         """환경 설정"""
-        self.cache_dir = Path(self.CACHE_DIR_NAME)
+        self.logger.debug("환경 설정 시작")
+        
         self.cache_dir.mkdir(exist_ok=True)
+        self.logger.debug(f"캐시 디렉토리 설정: {self.cache_dir}")
         
         # API 키 설정
-        self.gemini_api_key = os.getenv("GEMINI_API_KEY")
+        self.gemini_api_key = config.GEMINI_API_KEY
         
         if not self.gemini_api_key:
+            self.logger.error("GEMINI_API_KEY 환경변수가 설정되지 않았습니다")
             raise RuntimeError("GEMINI_API_KEY 환경변수가 필요합니다!")
         
-        print("✅ API 키 확인 완료 - Gemini LLM + 임베딩 사용")
+        self.logger.info("✅ API 키 확인 완료 - Gemini LLM + 임베딩 사용")
 
     def _initialize_utilities(self):
         """유틸리티 클래스들 초기화"""
-        self.cache_manager = CacheManager(self.cache_dir, self.CACHE_EXPIRY_SHORT, self.CACHE_EXPIRY_LONG)
+        self.logger.debug("유틸리티 초기화 시작")
+        
+        self.cache_manager = CacheManager(
+            self.cache_dir, 
+            self.cache_expiry_short, 
+            self.cache_expiry_long
+        )
         self.text_processor = TextProcessor()
         self.search_factory = SearcherFactory()
+        
+        self.logger.debug("유틸리티 초기화 완료")
 
     def _initialize_core_components(self):
         """핵심 컴포넌트 초기화"""
-        print("🚀 RAG 시스템 핵심 컴포넌트 초기화 중...")
+        self.logger.info("🚀 RAG 시스템 핵심 컴포넌트 초기화 중...")
         
         # Grounding을 위한 Google SDK 초기화
-        print("Google GenAI SDK 사용 - 웹 검색 그라운딩 지원")
-        self.genai_client = genai.Client(api_key=self.gemini_api_key)
+        self.logger.info("Google GenAI SDK 사용 - 웹 검색 그라운딩 지원")
+        try:
+            self.genai_client = genai.Client(api_key=self.gemini_api_key)
+            self.logger.debug("Google GenAI 클라이언트 초기화 성공")
+        except Exception as e:
+            self.logger.error(f"Google GenAI 클라이언트 초기화 실패: {e}")
+            raise
         
-        # 그라운딩 활성화 여부 설정 (True: 활성화, False: 비활성화)
-        self.enable_grounding = self.ENABLE_WEB_GROUNDING
+        # 그라운딩 활성화 여부 설정
+        self.logger.info(f"웹 검색 그라운딩: {'ON' if self.enable_web_grounding else 'OFF'}")
         
-        # 임베딩 함수 변경 (한국어 성능 향상)
-        print("✅ 임베딩 사용 - 한국어 성능 최적화")
-        self.embedding_fn = HuggingFaceEmbeddings(
-            model_name=self.EMBED_MODEL_NAME,
-            model_kwargs={"device": "cuda" if torch.cuda.is_available() else "cpu"},
-            encode_kwargs={"normalize_embeddings": True}  # BGE 시리즈는 보통 정규화 필요
-        )
+        # 임베딩 함수 초기화
+        device = config.get_device()
+        self.logger.info(f"임베딩 모델 로드: {self.embed_model_name} (디바이스: {device})")
         
-        self.vectordb = Chroma(
-            persist_directory=self.VECTOR_DB_DIR,
-            embedding_function=self.embedding_fn
-        )
+        try:
+            self.embedding_fn = HuggingFaceEmbeddings(
+                model_name=self.embed_model_name,
+                model_kwargs={"device": device},
+                encode_kwargs={"normalize_embeddings": True}
+            )
+            self.logger.debug("임베딩 모델 로드 성공")
+        except Exception as e:
+            self.logger.error(f"임베딩 모델 로드 실패: {e}")
+            raise
         
-        print("✅ 핵심 컴포넌트 초기화 완료")
+        # 벡터 DB 초기화
+        try:
+            self.vectordb = Chroma(
+                persist_directory=self.vector_db_dir,
+                embedding_function=self.embedding_fn
+            )
+            self.logger.info(f"벡터 DB 연결 성공: {self.vector_db_dir}")
+        except Exception as e:
+            self.logger.error(f"벡터 DB 연결 실패: {e}")
+            raise
+        
+        self.logger.info("✅ 핵심 컴포넌트 초기화 완료")
 
     def _initialize_retrievers(self):
         """검색기 초기화"""
-        print("🔄 검색기 초기화 중...")
+        self.logger.info("🔄 검색기 초기화 중...")
         start_time = time.time()
         
         # 벡터 검색기 설정 (검색 개수 대폭 증가)
@@ -111,9 +146,11 @@ class StructuredRAGService:
             search_type="mmr",
             search_kwargs={"k": 40, "fetch_k": 120, "lambda_mult": 0.5},
         )
+        self.logger.debug("벡터 검색기 설정 완료")
         
         # BM25 검색기 생성 (캐시 사용)
         self.bm25_retriever = self._get_bm25_retriever()
+        self.logger.debug("BM25 검색기 로드 완료")
         
         # 앙상블 검색기 생성 - 기본 설정
         # 동적 가중치는 rag_search에서 처리
@@ -121,12 +158,13 @@ class StructuredRAGService:
         
         # CrossEncoder 모델만 미리 로드
         self.cross_encoder_model = self._get_cross_encoder_model()
+        self.logger.debug("CrossEncoder 모델 로드 완료")
         
         # internal_retriever는 rag_search에서 동적으로 생성
         self.internal_retriever = None
         
         elapsed_time = time.time() - start_time
-        print(f"🎉 검색기 초기화 완료! (소요시간: {elapsed_time:.2f}초)")
+        self.logger.info(f"🎉 검색기 초기화 완료! (소요시간: {elapsed_time:.2f}초)")
 
     def _setup_llm_and_prompt(self):
         """LLM 및 프롬프트 설정 (던파 전문가 버전)"""
@@ -178,7 +216,7 @@ class StructuredRAGService:
 [답변 - 간결하고 명확하게]
 """
         )
-        print("✅ LLM 프롬프트 설정 완료")
+        self.logger.debug("✅ LLM 프롬프트 설정 완료")
 
     def _get_bm25_retriever(self):
         """BM25 검색기 생성 (캐시 활용)"""
@@ -187,16 +225,16 @@ class StructuredRAGService:
             return self.search_factory.create_bm25_retriever(docs_for_bm25)
         
         return self.cache_manager.load_or_create_cached_item(
-            self.BM25_CACHE_FILE, creation_func, self.CACHE_EXPIRY_SHORT, "BM25 Retriever"
+            self.bm25_cache_file, creation_func, self.cache_expiry_short, "BM25 Retriever"
         )
 
     def _get_cross_encoder_model(self):
         """CrossEncoder 모델 생성 (캐시 활용)"""
         def creation_func():
-            return self.search_factory.create_cross_encoder_model(self.CROSS_ENCODER_MODEL_HF)
+            return self.search_factory.create_cross_encoder_model(self.cross_encoder_model_hf)
         
         return self.cache_manager.load_or_create_cached_item(
-            self.CROSS_ENCODER_CACHE_FILE, creation_func, self.CACHE_EXPIRY_LONG, "CrossEncoder 모델"
+            self.cross_encoder_cache_file, creation_func, self.cache_expiry_long, "CrossEncoder 모델"
         )
     
     def _determine_weights(self, query: str, character_info: Optional[Dict]) -> List[float]:
@@ -209,7 +247,7 @@ class StructuredRAGService:
         # “최신·업데이트” 류 키워리면 벡터 가중치로 스왑
         if any(k in query_lower for k in ["최신", "업데이트", "현재", "패치", "종결"]):
             weights = [0.7, 0.3]
-            print("🔄 최신·패치 관련 키워드 감지 → 벡터 가중치 증가")
+            self.logger.debug("🔄 최신·패치 관련 키워드 감지 → 벡터 가중치 증가")
 
         return weights
     
@@ -234,7 +272,7 @@ class StructuredRAGService:
         # 캐시 확인
         cached_result = self.cache_manager.get_cached_search_result(query, 'rag_search', character_info)
         if cached_result:
-            print("🔄 캐시된 RAG 검색 결과 사용")
+            self.logger.debug("🔄 캐시된 RAG 검색 결과 사용")
             return cached_result
 
         search_start_time = time.time()
@@ -244,7 +282,7 @@ class StructuredRAGService:
         
         # 동적 가중치 설정
         weights = self._determine_weights(query, character_info)
-        print(f"🎯 앙상블 가중치: 벡터={weights[0]:.2f}, BM25={weights[1]:.2f}")
+        self.logger.debug(f"🎯 앙상블 가중치: 벡터={weights[0]:.2f}, BM25={weights[1]:.2f}")
         
         # 앙상블 검색기 동적 생성
         self.rrf_retriever = EnsembleRetriever(
@@ -265,20 +303,20 @@ class StructuredRAGService:
         def _search_internal():
             start = time.time()
             try:
-                print("🔄 내부 RAG 검색 시작...")
+                self.logger.debug("🔄 내부 RAG 검색 시작...")
                 docs = self.internal_retriever.get_relevant_documents(enhanced_query)
                 times["internal_search"] = time.time() - start
-                print(f"✅ 내부 RAG 검색 완료: {times['internal_search']:.2f}초, {len(docs)}개 문서")
+                self.logger.info(f"✅ 내부 RAG 검색 완료: {times['internal_search']:.2f}초, {len(docs)}개 문서")
                 return docs
             except Exception as e:
                 times["internal_search"] = time.time() - start
-                print(f"❌ 내부 RAG 검색 오류 ({times['internal_search']:.2f}초): {e}")
+                self.logger.error(f"❌ 내부 RAG 검색 오류 ({times['internal_search']:.2f}초): {e}")
                 return []
 
         internal_docs = _search_internal()
         
         times["internal_search"] = time.time() - search_start_time
-        print(f"🎯 내부 검색 완료 - 총 {times['internal_search']:.2f}초")
+        self.logger.debug(f"🎯 내부 검색 완료 - 총 {times['internal_search']:.2f}초")
 
         # 검색 결과를 컨텍스트 문자열로 변환
         internal_context_str = self.text_processor.format_docs_to_context_string(internal_docs, "내부")
@@ -299,13 +337,13 @@ class StructuredRAGService:
         """RAG 답변 생성 (메인 API)"""
         total_start_time = time.time()
         
-        print(f"\n[INFO] 질문 처리 시작: \"{query}\"")
+        self.logger.info(f"질문 처리 시작: \"{query}\"")
         
         # 이전 대화 기록 로그 출력
         if conversation_history and len(conversation_history) > 0:
-            print(f"[INFO] 이전 대화 기록: {len(conversation_history)}개 메시지")
+            self.logger.info(f"이전 대화 기록: {len(conversation_history)}개 메시지")
         else:
-            print("[INFO] 이전 대화 기록 없음")
+            self.logger.info("이전 대화 기록 없음")
 
         # 캐릭터 정보를 LLM용 컨텍스트로 변환
         char_context_for_llm = self.text_processor.build_character_context_for_llm(character_info)
@@ -318,7 +356,7 @@ class StructuredRAGService:
         
         # LLM 답변 생성
         llm_start_time = time.time()
-        print("🔄 LLM 답변 생성 중...")
+        self.logger.info("🔄 LLM 답변 생성 중...")
         
         formatted_prompt = self.prompt.format(
             internal_context=search_results["internal_context_provided_to_llm"],
@@ -332,18 +370,18 @@ class StructuredRAGService:
             
             # 그라운딩 도구 설정
             tools = []
-            if self.enable_grounding:
+            if self.enable_web_grounding:
                 google_search_tool = Tool(
                     google_search = GoogleSearch()
                 )
                 tools.append(google_search_tool)
-                print("🔍 웹 검색 그라운딩 활성화됨")
+                self.logger.debug("🔍 웹 검색 그라운딩 활성화됨")
             else:
-                print("🚫 웹 검색 그라운딩 비활성화됨")
+                self.logger.debug("🚫 웹 검색 그라운딩 비활성화됨")
             
             # LLM 호출
             response = self.genai_client.models.generate_content(
-                model=self.LLM_MODEL_NAME,
+                model=self.llm_model_name,
                 contents=formatted_prompt,
                 config=GenerateContentConfig(
                     tools=tools,
@@ -358,31 +396,31 @@ class StructuredRAGService:
                     llm_response += part.text
             
             # 그라운딩 메타데이터 확인
-            if self.enable_grounding and hasattr(response.candidates[0], 'grounding_metadata'):
+            if self.enable_web_grounding and hasattr(response.candidates[0], 'grounding_metadata'):
                 grounding = response.candidates[0].grounding_metadata
                 if hasattr(grounding, 'search_entry_point') and grounding.search_entry_point:
-                    print("🌐 웹 검색 그라운딩이 실제로 사용되었습니다!")
+                    self.logger.info("🌐 웹 검색 그라운딩이 실제로 사용되었습니다!")
                     # 검색된 내용 일부 출력 (디버깅용)
                     if grounding.search_entry_point.rendered_content:
-                        print(f"📄 검색 결과 미리보기: {grounding.search_entry_point.rendered_content[:200]}...")
+                        self.logger.debug(f"📄 검색 결과 미리보기: {grounding.search_entry_point.rendered_content[:200]}...")
         except Exception as e:
-            print(f"❌ LLM 답변 생성 오류: {e}")
-            print(f"상세 에러: {str(e)}")
-            print(f"에러 타입: {type(e).__name__}")
+            self.logger.error(f"❌ LLM 답변 생성 오류: {e}")
+            self.logger.error(f"상세 에러: {str(e)}")
+            self.logger.error(f"에러 타입: {type(e).__name__}")
             llm_response = "죄송합니다, 답변을 생성하는 중 오류가 발생했습니다."
 
         llm_elapsed_time = time.time() - llm_start_time
         total_elapsed_time = time.time() - total_start_time
         
-        print(f"✅ LLM 답변 생성 완료 ({llm_elapsed_time:.2f}초)")
-        print(f"[INFO] 총 처리 시간: {total_elapsed_time:.2f}초")
+        self.logger.info(f"✅ LLM 답변 생성 완료 ({llm_elapsed_time:.2f}초)")
+        self.logger.info(f"총 처리 시간: {total_elapsed_time:.2f}초")
         
-        # 생성된 답변 출력
-        print("\n" + "="*50)
-        print("[답변]")
-        print("="*50)
-        print(llm_response)
-        print("="*50 + "\n")
+        # 생성된 답변 출력 (디버그 레벨에서)
+        self.logger.debug("\n" + "="*50)
+        self.logger.debug("[답변]")
+        self.logger.debug("="*50)
+        self.logger.debug(llm_response[:200] + "..." if len(llm_response) > 200 else llm_response)
+        self.logger.debug("="*50)
         
         # FastAPI 엔드포인트에서 기대하는 키로 반환값 구성
         return {
@@ -405,7 +443,8 @@ def get_structured_rag_service() -> StructuredRAGService:
     """구조화된 RAG 서비스 인스턴스 반환"""
     global _structured_rag_service_instance
     if _structured_rag_service_instance is None:
-        print("✨ 새로운 StructuredRAGService 인스턴스 생성 ✨")
+        logger = get_logger(__name__)
+        logger.info("✨ 새로운 StructuredRAGService 인스턴스 생성 ✨")
         _structured_rag_service_instance = StructuredRAGService()
     return _structured_rag_service_instance
 

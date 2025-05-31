@@ -27,10 +27,10 @@ class ChatRequest(BaseModel):
     )
     # 이전 질문/응답 기록 (리스트 구조)
     beforeQuestionList: Optional[List[str]] = Field(
-        default_factory=list, description="이전 질문 목록"
+        default=None, description="이전 질문 목록"
     )
     beforeResponseList: Optional[List[str]] = Field(
-        default_factory=list, description="이전 응답 목록"
+        default=None, description="이전 응답 목록"
     )
 
 class ChatResponse(BaseModel):

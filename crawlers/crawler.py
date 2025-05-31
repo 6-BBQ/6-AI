@@ -9,6 +9,7 @@ from official_crawler import crawl_df
 from dc_crawler import crawl_dcinside
 from arca_crawler import crawl_arca
 from youtube_crawler import crawl_youtube
+from utils import get_logger
 
 # 방문한 URL 저장소 (증분 크롤링 지원)
 VISITED_URLS_FILE = "data/visited_urls.json"
@@ -48,6 +49,9 @@ def run_crawler(crawler_func, *args, **kwargs):
         return []
 
 def main():
+    # 로거 초기화
+    logger = get_logger(__name__)
+    
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=textwrap.dedent("""\
@@ -95,16 +99,16 @@ def main():
             pass
         return
 
-    print(f"\n🔔 통합 크롤링 시작 ({datetime.now():%Y-%m-%d %H:%M:%S})")
-    print(f"   - pages = {args.pages}, depth = {args.depth}")
-    print(f"   - YouTube 모드 = {args.yt_mode}")
+    logger.info(f"\n🔔 통합 크롤링 시작 ({datetime.now():%Y-%m-%d %H:%M:%S})")
+    logger.info(f"   - pages = {args.pages}, depth = {args.depth}")
+    logger.info(f"   - YouTube 모드 = {args.yt_mode}")
     if args.yt_mode in ['hybrid', 'channel']:
-        print(f"   - yt-channel = {args.yt_channel}")
+        logger.info(f"   - yt-channel = {args.yt_channel}")
     if args.yt_mode in ['hybrid', 'search']:
-        print(f"   - yt-query = '던파 가이드(10), 현질가이드(5), 나벨공략(5)'")
-    print(f"   - yt-max = {args.yt_max}")
-    print(f"   - 병렬 처리 = {args.parallel}, 작업자 수 = {args.workers}")
-    print(f"   - 증분 크롤링 = {args.incremental}")
+        logger.info(f"   - yt-query = '던파 가이드(10), 현질가이드(5), 나벨공략(5)'")
+    logger.info(f"   - yt-max = {args.yt_max}")
+    logger.info(f"   - 병렬 처리 = {args.parallel}, 작업자 수 = {args.workers}")
+    logger.info(f"   - 증분 크롤링 = {args.incremental}")
     
     # 증분 크롤링을 위한 방문 URL 로드
     if args.incremental:
@@ -257,20 +261,20 @@ def main():
         save_visited_urls(visited_urls)
     
     # 결과 요약
-    print("\n모든 크롤링 완료!")
-    print(f"   총 소요 시간: {elapsed_time:.1f}초")
+    logger.info("\n모든 크롤링 완료!")
+    logger.info(f"   총 소요 시간: {elapsed_time:.1f}초")
     
     for source, count in results.items():
-        print(f"   - {source}: {count}개 항목")
+        logger.info(f"   - {source}: {count}개 항목")
     
     total_count = sum(results.values())
-    print(f"\n   총 {total_count}개 항목 수집 완료!")
+    logger.info(f"\n   총 {total_count}개 항목 수집 완료!")
     
     if args.quality_threshold > 0:
-        print(f"   품질 필터링 후 남은 항목: {len(all_results)}개")
+        logger.info(f"   품질 필터링 후 남은 항목: {len(all_results)}개")
     
     if args.merge:
-        print(f"   병합 결과 저장: {merged_file}")
+        logger.info(f"   병합 결과 저장: {merged_file}")
 
 if __name__ == "__main__":
     # 패키지 밖에서 python crawler/crawler.py로도 실행 가능하도록 경로 보정
