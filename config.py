@@ -39,8 +39,8 @@ class Config:
     # 🤖 RAG 시스템 설정
     # ================================
     ENABLE_WEB_GROUNDING: bool = os.getenv("ENABLE_WEB_GROUNDING", "true").lower() == "true"
-    EMBED_MODEL_NAME: str = os.getenv("EMBED_MODEL_NAME", "models/text-embedding-004")
-    EMBEDDING_TYPE: str = os.getenv("EMBEDDING_TYPE", "gemini")  # gemini, models/text-embedding-004 // huggingface, dragonkue/bge-m3-ko
+    EMBED_MODEL_NAME: str = os.getenv("EMBED_MODEL_NAME", "text-embedding-3-large")
+    EMBEDDING_TYPE: str = os.getenv("EMBEDDING_TYPE", "openai")
     CROSS_ENCODER_MODEL: str = os.getenv("CROSS_ENCODER_MODEL", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1")
     LLM_MODEL_NAME: str = os.getenv("LLM_MODEL_NAME", "gemini-2.5-pro-preview-05-06")
     
@@ -246,6 +246,14 @@ class Config:
                 model_name=cls.EMBED_MODEL_NAME,
                 model_kwargs={"device": device},
                 encode_kwargs={"normalize_embeddings": True}
+            )
+        elif cls.EMBEDDING_TYPE.lower() == "openai":
+            from langchain_openai import OpenAIEmbeddings
+            if not cls.OPENAI_API_KEY:
+                raise ValueError("OpenAI API 키(OPENAI_API_KEY)가 설정되지 않았습니다.")
+            return OpenAIEmbeddings(
+                model=cls.EMBED_MODEL_NAME,
+                openai_api_key=cls.OPENAI_API_KEY
             )
         else:
             raise ValueError(f"지원하지 않는 임베딩 타입: {cls.EMBEDDING_TYPE}")

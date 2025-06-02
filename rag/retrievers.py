@@ -80,10 +80,4 @@ class MetadataAwareRetriever:
         # 스코어 순으로 정렬하여 상위 N개 반환
         scored_docs.sort(key=lambda x: x[1], reverse=True)
         
-        # 디버깅용 로그 (상위 10개)
-        print("\n[검색 결과 스코어링 - 상위 10개]")
-        for i, (doc, score) in enumerate(scored_docs[:10]):
-            meta = doc.metadata or {}
-            print(f"{i+1}. {meta.get('title', 'Unknown')} - 점수: {score:.2f} (직업: {meta.get('class_name', 'N/A')})")
-        
         return [doc for doc, score in scored_docs[:self.top_n]]
