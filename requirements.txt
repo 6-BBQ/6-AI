@@ -52,7 +52,7 @@ cloudscraper>=1.2.71
 numpy>=2.0.0
 
 # ──────────── PyTorch (CPU 전용) ────────────
-torch==2.1.2+cpu @ https://download.pytorch.org/whl/cpu/torch-2.1.2%2Bcpu-cp312-cp312-linux_x86_64.whl
+https://download.pytorch.org/whl/cpu/torch-2.1.2%2Bcpu-cp312-cp312-linux_x86_64.whl
 
 # ──────────── Sentence Transformers ────────────
 sentence-transformers
