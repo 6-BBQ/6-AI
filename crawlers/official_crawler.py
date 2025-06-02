@@ -276,12 +276,21 @@ def crawl_df(max_pages=2, max_depth=2, visited_urls=None, is_incremental=True):
                 notice_processed = True
             
         # ── 게시판 크롤링 끝난 뒤 ───────────────────
-        # ② 공식 가이드 크롤링 : 필요할 때 사용
+        # ───── 2) 공식 가이드 크롤링 ─────
         for gid in GUIDE_IDS:
+            guide_url = f"{GUIDE_BASE}{gid}"
+
+            # 🔸 이미 수집한 가이드 URL이면 스킵
+            if is_incremental and guide_url in visited_urls:
+                continue
+
             item = crawl_guide_page(gid, session)
             if item:
                 item["quality_score"] = 9.0
                 results.append(item)
+
+                # 🔸 새로 수집했으면 즉시 기록
+                visited_urls.add(guide_url)
 
         # 결과 요약
         elapsed_time = time.time() - start_time

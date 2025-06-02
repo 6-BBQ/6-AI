@@ -137,10 +137,10 @@ class StructuredRAGService:
         self.logger.info("🔄 검색기 초기화 중...")
         start_time = time.time()
         
-        # 벡터 검색기 설정 (검색 개수 대폭 증가)
+        # 벡터 검색기 설정
         self.vector_retriever = self.vectordb.as_retriever(
             search_type="mmr",
-            search_kwargs={"k": 40, "fetch_k": 120, "lambda_mult": 0.5},
+            search_kwargs={"k": 25, "fetch_k": 100, "lambda_mult": 0.5},
         )
         self.logger.debug("벡터 검색기 설정 완료")
         
@@ -299,7 +299,7 @@ class StructuredRAGService:
         )
         
         # CrossEncoder 재랭킹 추가
-        compressor = CrossEncoderReranker(model=self.cross_encoder_model, top_n=60)
+        compressor = CrossEncoderReranker(model=self.cross_encoder_model, top_n=40)
         base_retriever = ContextualCompressionRetriever(
             base_retriever=self.rrf_retriever,
             base_compressor=compressor,
@@ -383,9 +383,9 @@ class StructuredRAGService:
                     google_search = GoogleSearch()
                 )
                 tools.append(google_search_tool)
-                self.logger.debug("🔍 웹 검색 그라운딩 활성화됨")
+                self.logger.info("🔍 웹 검색 그라운딩 활성화됨")
             else:
-                self.logger.debug("🚫 웹 검색 그라운딩 비활성화됨")
+                self.logger.info("🚫 웹 검색 그라운딩 비활성화됨")
             
             # LLM 호출
             response = self.genai_client.models.generate_content(
@@ -408,9 +408,6 @@ class StructuredRAGService:
                 grounding = response.candidates[0].grounding_metadata
                 if hasattr(grounding, 'search_entry_point') and grounding.search_entry_point:
                     self.logger.info("🌐 웹 검색 그라운딩이 실제로 사용되었습니다!")
-                    # 검색된 내용 일부 출력 (디버깅용)
-                    if grounding.search_entry_point.rendered_content:
-                        self.logger.debug(f"📄 검색 결과 미리보기: {grounding.search_entry_point.rendered_content[:200]}...")
         except Exception as e:
             self.logger.error(f"❌ LLM 답변 생성 오류: {e}")
             self.logger.error(f"상세 에러: {str(e)}")
@@ -422,13 +419,6 @@ class StructuredRAGService:
         
         self.logger.info(f"✅ LLM 답변 생성 완료 ({llm_elapsed_time:.2f}초)")
         self.logger.info(f"총 처리 시간: {total_elapsed_time:.2f}초")
-        
-        # 생성된 답변 출력 (디버그 레벨에서)
-        self.logger.debug("\n" + "="*50)
-        self.logger.debug("[답변]")
-        self.logger.debug("="*50)
-        self.logger.debug(llm_response[:200] + "..." if len(llm_response) > 200 else llm_response)
-        self.logger.debug("="*50)
         
         # FastAPI 엔드포인트에서 기대하는 키로 반환값 구성
         return {

@@ -28,6 +28,9 @@ langchain>=0.3.0
 langchain-community>=0.3.0
 langchain-chroma>=0.1.4
 
+# OpenAI Embedding 공식 패키지 (분리됨)
+langchain-openai>=0.1.2
+
 # ──────────── 벡터 데이터베이스 ────────────
 chromadb>=0.5.20
 
