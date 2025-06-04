@@ -17,6 +17,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 # ─────────────────────────────────────────────────────────────
 # 1️⃣ 설정
 MERGED_DIR           = Path(config.MERGED_DIR)
+RAW_DIR              = Path(config.RAW_DIR)
 PROCESSED_SAVE_PATH  = Path(config.PROCESSED_SAVE_PATH)
 PROCESSED_CACHE_PATH = Path(config.PROCESSED_CACHE_PATH)
 CHUNK_SIZE           = config.CHUNK_SIZE
@@ -74,19 +75,34 @@ def get_new_and_updated_files(processed_cache: Dict[str, str]) -> List[Path]:
     """새로운 파일과 업데이트된 파일 탐지"""
     new_files = []
     
-    for path in MERGED_DIR.rglob("*"):
-        if not path.is_file():
-            continue
-        if path.suffix.lower() not in {".json", ".jsonl"}:
+    # MERGED_DIR과 RAW_DIR 모두 검사
+    search_dirs = [MERGED_DIR, RAW_DIR]
+    
+    for search_dir in search_dirs:
+        if not search_dir.exists():
             continue
             
-        file_path_str = str(path.relative_to(MERGED_DIR))
-        current_hash = get_file_hash(path)
-        
-        # 새 파일이거나 해시가 변경된 경우
-        if file_path_str not in processed_cache or processed_cache[file_path_str] != current_hash:
-            new_files.append(path)
-            processed_cache[file_path_str] = current_hash
+        for path in search_dir.rglob("*"):
+            if not path.is_file():
+                continue
+            if path.suffix.lower() not in {".json", ".jsonl"}:
+                continue
+                
+            # 상대 경로를 계산할 때 어느 디렉토리에서 온 파일인지 구분
+            try:
+                if search_dir == MERGED_DIR:
+                    file_path_str = f"merged/{path.relative_to(MERGED_DIR)}"
+                else:
+                    file_path_str = f"raw/{path.relative_to(RAW_DIR)}"
+            except ValueError:
+                continue
+                
+            current_hash = get_file_hash(path)
+            
+            # 새 파일이거나 해시가 변경된 경우
+            if file_path_str not in processed_cache or processed_cache[file_path_str] != current_hash:
+                new_files.append(path)
+                processed_cache[file_path_str] = current_hash
     
     return new_files
 
@@ -97,11 +113,65 @@ def load_existing_processed_docs() -> Set[str]:
         if PROCESSED_SAVE_PATH.exists():
             with PROCESSED_SAVE_PATH.open('r', encoding='utf-8') as f:
                 for line in f:
-                    data = json.loads(line)
-                    existing_ids.add(data.get('id', ''))
+                    if line.strip():
+                        data = json.loads(line)
+                        existing_ids.add(data.get('id', ''))
     except Exception as e:
         log.warning(f"기존 문서 로드 실패: {e}")
     return existing_ids
+
+def generate_document_id(doc: Dict[str, Any], chunk_index: int = 0) -> str:
+    """문서의 고유한 특성을 기반으로 안전한 ID 생성"""
+    # 고유 식별자 생성을 위한 요소들
+    id_components = []
+    
+    # 1. URL이 있으면 최우선 사용
+    if doc.get('url'):
+        id_components.append(doc['url'])
+    
+    # 2. 제목 사용
+    title = doc.get('title', '').strip()
+    if title:
+        id_components.append(title)
+    
+    # 3. 내용 일부 사용 (첫 100자)
+    content = doc.get('body', '') or doc.get('content', '')
+    if content:
+        content_preview = clean_html(content)[:100]
+        id_components.append(content_preview)
+    
+    # 4. 파일 소스 정보
+    if doc.get('_file_source'):
+        id_components.append(doc['_file_source'])
+    
+    # 5. 타임스탬프 (날짜 정보)
+    if doc.get('date'):
+        id_components.append(str(doc['date']))
+    elif doc.get('timestamp'):
+        id_components.append(str(doc['timestamp']))
+    
+    # 조합된 문자열을 해시화
+    combined = '|'.join(id_components)
+    doc_hash = hashlib.md5(combined.encode('utf-8')).hexdigest()[:12]  # 12자리로 축약
+    
+    # 청크 인덱스와 조합하여 최종 ID 생성
+    return f"doc_{doc_hash}_chunk_{chunk_index}"
+
+def check_id_uniqueness(doc_id: str, existing_ids: Set[str]) -> str:
+    """ID 중복 검사 및 고유 ID 보장"""
+    original_id = doc_id
+    counter = 1
+    
+    while doc_id in existing_ids:
+        # 중복이면 suffix 추가
+        if "_chunk_" in original_id:
+            base_part, chunk_part = original_id.rsplit('_chunk_', 1)
+            doc_id = f"{base_part}_dup{counter}_chunk_{chunk_part}"
+        else:
+            doc_id = f"{original_id}_dup{counter}"
+        counter += 1
+    
+    return doc_id
 
 # ─────────────────────────────────────────────────────────────
 # 3️⃣ 헬퍼
@@ -150,7 +220,14 @@ def load_raw_files(incremental: bool = False) -> List[Dict[str, Any]]:
         save_processed_cache(processed_cache)
     else:
         # 전체 모드: 모든 파일 처리
-        files_to_process = list(MERGED_DIR.rglob("*"))
+        files_to_process = []
+        
+        # MERGED_DIR과 RAW_DIR 모두 처리
+        search_dirs = [MERGED_DIR, RAW_DIR]
+        for search_dir in search_dirs:
+            if search_dir.exists():
+                files_to_process.extend(list(search_dir.rglob("*")))
+        
         files_to_process = [p for p in files_to_process if p.is_file()]
         log.info(f"📋 전체 모드: {len(files_to_process)}개 파일 처리 예정")
     
@@ -163,11 +240,25 @@ def load_raw_files(incremental: bool = False) -> List[Dict[str, Any]]:
                         # 새로운 타임스탬프 추가
                         for item in data:
                             if isinstance(item, dict):
-                                item['_file_source'] = str(path.relative_to(MERGED_DIR))
+                                # 파일이 어느 디렉토리에서 왔는지 결정
+                                try:
+                                    if RAW_DIR in path.parents or path.parent == RAW_DIR:
+                                        item['_file_source'] = f"raw/{path.relative_to(RAW_DIR)}"
+                                    else:
+                                        item['_file_source'] = f"merged/{path.relative_to(MERGED_DIR)}"
+                                except ValueError:
+                                    item['_file_source'] = str(path.name)
                                 item['_processed_at'] = datetime.now().isoformat()
                         docs.extend(data)
                     else:
-                        data['_file_source'] = str(path.relative_to(MERGED_DIR))
+                        # 파일이 어느 디렉토리에서 왔는지 결정
+                        try:
+                            if RAW_DIR in path.parents or path.parent == RAW_DIR:
+                                data['_file_source'] = f"raw/{path.relative_to(RAW_DIR)}"
+                            else:
+                                data['_file_source'] = f"merged/{path.relative_to(MERGED_DIR)}"
+                        except ValueError:
+                            data['_file_source'] = str(path.name)
                         data['_processed_at'] = datetime.now().isoformat()
                         docs.append(data)
                 except json.JSONDecodeError:
@@ -175,11 +266,20 @@ def load_raw_files(incremental: bool = False) -> List[Dict[str, Any]]:
         else:
             # html / txt
             with path.open(encoding="utf-8") as f:
+                # 파일이 어느 디렉토리에서 왔는지 결정
+                try:
+                    if RAW_DIR in path.parents or path.parent == RAW_DIR:
+                        file_source = f"raw/{path.relative_to(RAW_DIR)}"
+                    else:
+                        file_source = f"merged/{path.relative_to(MERGED_DIR)}"
+                except ValueError:
+                    file_source = str(path.name)
+                    
                 doc_data = {
                     "title": path.stem, 
                     "body": f.read(), 
                     "source": str(path),
-                    '_file_source': str(path.relative_to(MERGED_DIR)),
+                    '_file_source': file_source,
                     '_processed_at': datetime.now().isoformat()
                 }
                 docs.append(doc_data)
@@ -217,7 +317,7 @@ def extract_metadata(doc: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ─────────────────────────────────────────────────────────────
-# 3️⃣ 메인 파이프라인
+# 4️⃣ 개선된 메인 파이프라인
 def main(incremental: bool = False) -> None:
     log.info("🔍 raw 문서 로드 중…")
     raw_docs = load_raw_files(incremental=incremental)
@@ -228,15 +328,25 @@ def main(incremental: bool = False) -> None:
         log.info("✅ 전처리 완료! (처리할 새 파일 없음)")
         return
 
+    # 증분 모드일 때만 기존 ID 로드 (중복 방지)
+    existing_ids = set()
+    if incremental:
+        existing_ids = load_existing_processed_docs()
+        log.info(f"📋 기존 처리된 문서 ID: {len(existing_ids)}개")
+
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
         separators=["\n\n", "\n", ".", "!", "?", " ", ""],
     )
 
-    out_f = PROCESSED_SAVE_PATH.open("w", encoding="utf-8")
+    # 증분 모드는 append, 전체 모드는 새로 생성
+    mode = "a" if incremental and PROCESSED_SAVE_PATH.exists() else "w"
+    out_f = PROCESSED_SAVE_PATH.open(mode, encoding="utf-8")
 
     processed = 0
+    skipped_duplicates = 0
+    
     for idx, doc in enumerate(raw_docs):
         # 제목과 본문 추출
         title = doc.get("title", "").strip()
@@ -261,12 +371,36 @@ def main(incremental: bool = False) -> None:
         metadata = extract_metadata(doc)
         metadata.update({
             "title": title,
-            "id_raw": idx,
+            "doc_index": idx,  # id_raw 대신 doc_index 사용
+            "_file_source": doc.get('_file_source', ''),
+            "_processed_at": doc.get('_processed_at', '')
         })
 
-        for n, chunk in enumerate(chunks):
+        # 증분 모드에서 이미 처리된 문서인지 확인
+        if incremental:
+            # 기본 문서ID로 중복 체크 (청크 0 기준)
+            base_doc_id = generate_document_id(doc, 0)
+            base_prefix = base_doc_id.replace('_chunk_0', '')
+            
+            # 이미 처리된 문서인지 확인
+            already_processed = any(existing_id.startswith(base_prefix) for existing_id in existing_ids)
+            
+            if already_processed:
+                skipped_duplicates += len(chunks)
+                log.debug(f"문서 건너뛰기 (이미 처리됨): {title[:50]}...")
+                continue
+
+        for chunk_idx, chunk in enumerate(chunks):
+            # 새로운 ID 생성 로직 사용
+            doc_id = generate_document_id(doc, chunk_idx)
+            
+            # 증분 모드에서 ID 고유성 보장
+            if incremental:
+                doc_id = check_id_uniqueness(doc_id, existing_ids)
+                existing_ids.add(doc_id)
+            
             rec = {
-                "id": f"{idx}_{n}",
+                "id": doc_id,
                 "content": chunk,
                 "metadata": metadata.copy(),  # 각 청크마다 복사본 생성
             }
@@ -280,7 +414,10 @@ def main(incremental: bool = False) -> None:
     log.info("📊 처리 통계:")
     log.info(f"   - 원본 문서: {len(raw_docs)}개")
     log.info(f"   - 생성된 청크: {processed}개")
-    log.info(f"   - 평균 청크/문서: {processed/len(raw_docs):.1f}")
+    if skipped_duplicates > 0:
+        log.info(f"   - 중복 건너뛰기: {skipped_duplicates}개")
+    if len(raw_docs) > 0:
+        log.info(f"   - 평균 청크/문서: {processed/len(raw_docs):.1f}")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -288,7 +425,7 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser(
-        description="던파 데이터 전처리 스크립트 (증분 처리 지원)",
+        description="던파 데이터 전처리 스크립트 (개선된 증분 처리)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 예시:

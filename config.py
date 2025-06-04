@@ -95,6 +95,7 @@ class Config:
     
     # 저장 경로 설정
     RAW_DATA_DIR: str = os.getenv("RAW_DATA_DIR", "data/raw")
+    RAW_DIR: str = os.getenv("RAW_DIR", "data/raw")  # 전처리용 별칭
     OFFICIAL_RAW_PATH: str = os.getenv("OFFICIAL_RAW_PATH", "data/raw/official_raw.json")
     DC_RAW_PATH: str = os.getenv("DC_RAW_PATH", "data/raw/dc_raw.json")
     ARCA_RAW_PATH: str = os.getenv("ARCA_RAW_PATH", "data/raw/arca_raw.json")
@@ -269,6 +270,7 @@ class Config:
             Path(cls.PROCESSED_CACHE_PATH).parent,
             cls.MERGED_DIR,
             cls.RAW_DATA_DIR,
+            cls.RAW_DIR,
         ]
         for d in directories:
             Path(d).mkdir(parents=True, exist_ok=True)

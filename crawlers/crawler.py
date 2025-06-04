@@ -16,6 +16,7 @@ from config import config
 from dc_crawler import crawl_dcinside
 from official_crawler import crawl_df
 from arca_crawler import crawl_arca
+from etc_crawler import crawl_etc_manual
 from utils import get_logger
 
 # 증분 크롤링 기록 파일 (config에서 가져옴)
@@ -95,7 +96,7 @@ def main() -> None:
         "--sources",
         type=str,
         default="all",
-        help="크롤링 소스: official,dc,arca,all (콤마구분)",
+        help="크롤링 소스: official,dc,arca,etc,all (콤마구분)",
     )
 
     # 품질 필터 및 병합
@@ -130,6 +131,8 @@ def main() -> None:
         tasks.append(("디시", lambda: run_crawler(crawl_dcinside, args.pages, args.depth, visited, args.incremental)))
     if all_sel or "arca" in sel:
         tasks.append(("아카", lambda: run_crawler(crawl_arca, args.pages, args.depth, visited, args.incremental)))
+    if all_sel or "etc" in sel:
+        tasks.append(("수동", lambda: run_crawler(crawl_etc_manual, args.pages, args.depth, visited, args.incremental)))
 
     results: dict[str, int] = {}
     all_items: list[dict] = []
