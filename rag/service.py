@@ -140,7 +140,7 @@ class StructuredRAGService:
         # 벡터 검색기 설정
         self.vector_retriever = self.vectordb.as_retriever(
             search_type="mmr",
-            search_kwargs={"k": 35, "fetch_k": 120, "lambda_mult": 0.5},
+            search_kwargs={"k": 25, "fetch_k": 100, "lambda_mult": 0.5},
         )
         self.logger.debug("벡터 검색기 설정 완료")
         

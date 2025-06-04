@@ -75,8 +75,8 @@ def get_new_and_updated_files(processed_cache: Dict[str, str]) -> List[Path]:
     """새로운 파일과 업데이트된 파일 탐지"""
     new_files = []
     
-    # MERGED_DIR과 RAW_DIR 모두 검사
-    search_dirs = [MERGED_DIR, RAW_DIR]
+    # MERGED_DIR만 검사 (RAW_DIR 제외하여 중복 방지)
+    search_dirs = [MERGED_DIR]
     
     for search_dir in search_dirs:
         if not search_dir.exists():
@@ -222,8 +222,8 @@ def load_raw_files(incremental: bool = False) -> List[Dict[str, Any]]:
         # 전체 모드: 모든 파일 처리
         files_to_process = []
         
-        # MERGED_DIR과 RAW_DIR 모두 처리
-        search_dirs = [MERGED_DIR, RAW_DIR]
+        # MERGED_DIR만 처리 (RAW_DIR 제외하여 중복 방지)
+        search_dirs = [MERGED_DIR]
         for search_dir in search_dirs:
             if search_dir.exists():
                 files_to_process.extend(list(search_dir.rglob("*")))
