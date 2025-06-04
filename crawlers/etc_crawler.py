@@ -12,7 +12,7 @@ from config import config
 from utils import get_logger
 
 # 설정
-ETC_RAW_PATH = Path(config.RAW_DIR)
+ETC_RAW_PATH = Path(config.RAW_DIR) / "etc_raw.json"
 
 def crawl_etc_manual(
     pages: int = 1,
@@ -85,13 +85,8 @@ def crawl_etc_manual(
             result_data.append(processed_item)
             visited_urls.add(url)
         
-        logger.info(f"✅ etc_raw.json에서 {len(result_data)}개 수동 가이드 로드 완료")
-        
-        # etc_raw.json 데이터를 별도 파일로도 저장
-        etc_output_path = Path(config.RAW_DIR) / "etc_raw.json"
-        with open(etc_output_path, "w", encoding="utf-8") as f:
-            json.dump(result_data, f, ensure_ascii=False, indent=2)
-        
+        logger.info(f"✅ etc_raw.json에서 {len(result_data)}개 수동 로드 완료")
+                
         return result_data
         
     except Exception as e:
@@ -102,6 +97,6 @@ def crawl_etc_manual(
 if __name__ == "__main__":
     # 테스트용 실행
     result = crawl_etc_manual()
-    print(f"수동 가이드 {len(result)}개 로드됨")
+    print(f"수동 {len(result)}개 로드됨")
     for item in result:
         print(f"- {item['title']}")
